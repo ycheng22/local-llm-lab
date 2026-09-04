@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase 1: Dataset, Verifier & Evaluation Pipeline**
+  - Dataset Layer: `src/llm_lab/data` implementing Pydantic `TaskSchema`, JSONL loaders, and synthetic `generator.py`.
+  - Verifier Layer: `src/llm_lab/verifier` implementing secure `DockerVerifier` to execute and test generated candidate code in an ephemeral `public.ecr.aws/lambda/python:3.12-rapid-x86_64` container without networking.
+  - Evaluation Layer: `src/llm_lab/evaluation` calculating Pass@K metrics (`metrics.py`) and running the full inference-verification loop (`evaluator.py`).
+  - Reporting Layer: `src/llm_lab/reporting/experiment.py` outputting `summary.json` and per-task `generations.jsonl`.
+  - Baseline Config: `configs/eval.yaml` defining parameters for the initial evaluation loop.
 - **Phase 0: Project Scaffolding & Environment Setup**
   - Project directory structure (`src/llm_lab`, `configs`, `experiments`, `data`, `tests`, `scripts`).
   - `pyproject.toml` containing dependencies for small-scale LLM lab (`transformers`, `trl`, `peft`, `bitsandbytes`, `pytest`, etc.).
