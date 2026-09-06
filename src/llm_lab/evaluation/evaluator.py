@@ -8,6 +8,7 @@ from llm_lab.data import load_dataset
 from llm_lab.verifier import DockerVerifier
 from llm_lab.evaluation import aggregate_pass_at_k
 from llm_lab.reporting import ExperimentTracker
+from llm_lab.constants import resolve_path
 
 def extract_code(completion: str) -> str:
     """Extracts Python code from a markdown-formatted completion."""
@@ -21,7 +22,8 @@ def run_evaluation(config_path: str):
     config = load_config(config_path)
     
     experiment_id = config["experiment"]["id"]
-    tracker = ExperimentTracker(experiment_id, config["logging"]["output_dir"])
+    output_dir = resolve_path(config["logging"]["output_dir"])
+    tracker = ExperimentTracker(experiment_id, str(output_dir))
     tracker.set_config(
         model=config["model"]["id"],
         dataset=config["evaluation"]["dataset"],

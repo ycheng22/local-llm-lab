@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase 2: Supervised Fine-Tuning (SFT) Pipeline**
+  - Added training configurations and datasets for LoRA fine-tuning using Hugging Face `trl` and `bitsandbytes` (4-bit NF4).
+  - Created `src/llm_lab/training/sft.py` supporting gradient checkpointing, tracking peak VRAM usage, and handling chat template alignment.
+  - Added `notebooks/sft_evaluation.ipynb` demonstrating the end-to-end dataset generation, training, and evaluation lifecycle.
 - **Phase 1: Dataset, Verifier & Evaluation Pipeline**
   - Dataset Layer: `src/llm_lab/data` implementing Pydantic `TaskSchema`, JSONL loaders, and synthetic `generator.py`.
   - Verifier Layer: `src/llm_lab/verifier` implementing secure `DockerVerifier` to execute and test generated candidate code in an ephemeral `public.ecr.aws/lambda/python:3.12-rapid-x86_64` container without networking.

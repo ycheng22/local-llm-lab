@@ -1,0 +1,57 @@
+# Implement Phase 2: Supervised Fine-Tuning (SFT)
+
+Phase 2 builds the core training capabilities of the Local LLM Lab. We will implement QLoRA SFT using Hugging Face's `trl` and `peft` libraries to fine-tune `Qwen3.5-2B` on a synthetic coding dataset within the 8GB VRAM constraint.
+
+## Goal
+Implement a robust, resume-able QLoRA training script that monitors hardware limits (GPU Memory), logs training metrics (Loss, LR, Time), and correctly interfaces with the evaluation pipeline.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Dataset Scaling**: The documentation dictates starting with 500 tasks to verify stability before scaling to 5,000 tasks. 
+> For this implementation phase, I will run the synthetic data generator to produce:
+> - `train.jsonl` (400 tasks)
+> - `dev.jsonl` (100 tasks)
+> 
+> Does this split sound good for testing the SFT pipeline, or would you prefer me to generate the full 5,000 tasks immediately?
+
+## Proposed Changes
+
+We will implement this based on Prompt #6 from the project documentation.
+
+---
+
+### Training Layer
+This layer orchestrates the PyTorch / Hugging Face training loop.
+
+#### [NEW] `src/llm_lab/training/sft.py`
+The main training script. Responsibilities:
+- Parse `sft_v1.yaml` configuration.
+- Load `Qwen3.5-2B` using 4-bit NF4 quantization.
+- Apply PEFT (LoRA) configuration (r=16, alpha=32).
+- Prepare the datasets using the Hugging Face `datasets` library and formatting functions matching the Qwen prompt structure.
+- Utilize `SFTTrainer` from `trl` with gradient checkpointing, `per_device_train_batch_size=1`, and `gradient_accumulation_steps=8` to stay under the 8GB VRAM limit.
+- Support checkpoint saving and resuming.
+- Log GPU memory and training time using custom callbacks or logging hooks.
+
+#### [NEW] `configs/sft_v1.yaml`
+The training configuration matching the project's specifications. 
+- Learning rate: `1e-5`
+- Epochs: `1`
+- LoRA parameters, output directories, and hardware optimization flags.
+
+### Dataset Scaling
+To feed the trainer, we need dedicated training and development splits.
+
+#### [MODIFY] `src/llm_lab/data/generator.py`
+I will use the existing synthetic generator to generate `train.jsonl` and `dev.jsonl` instead of just a toy `test.jsonl`.
+
+## Verification Plan
+
+### Automated Tests
+- Since SFT involves heavy GPU compute, traditional unit testing is slow. Instead, I will implement a **smoke test flag** (or use `max_steps=5`) in `sft.py` to run a mini-training loop that proves the architecture works without OOM errors before launching the real run.
+
+### Manual Verification
+- We will execute the SFT pipeline on the synthetic 500-task dataset.
+- Monitor VRAM to ensure it stays below 8GB.
+- After training completes, we will run the `evaluator.py` from Phase 1 using the newly trained LoRA adapters against the `test.jsonl` baseline to verify that Pass@K has improved.

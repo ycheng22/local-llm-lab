@@ -2,12 +2,13 @@ import json
 from pathlib import Path
 from typing import List, Generator
 from .schema import TaskSchema
+from llm_lab.constants import resolve_path
 
 def load_dataset(file_path: str | Path) -> List[TaskSchema]:
     """
     Load a JSONL dataset file and validate it against the TaskSchema.
     """
-    path = Path(file_path)
+    path = resolve_path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"Dataset not found: {path}")
     

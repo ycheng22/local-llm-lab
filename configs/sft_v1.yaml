@@ -1,0 +1,32 @@
+experiment:
+  id: exp01_sft_v1
+
+model:
+  id: Qwen/Qwen3.5-2B
+
+quantization:
+  enabled: true
+  bits: 4
+  quant_type: nf4
+  compute_dtype: bfloat16
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.05
+
+training:
+  dataset: data/train.jsonl
+  eval_dataset: data/dev.jsonl
+  max_seq_length: 4096
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.00001
+  num_train_epochs: 1
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 250
+
+output:
+  dir: experiments/exp01_sft_v1

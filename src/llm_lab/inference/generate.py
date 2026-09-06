@@ -43,6 +43,14 @@ def setup_model_and_tokenizer(model_cfg: dict):
         trust_remote_code=True
     )
     
+    adapter_path = model_cfg.get("adapter_path")
+    if adapter_path:
+        from peft import PeftModel
+        from llm_lab.constants import resolve_path
+        adapter_resolved = str(resolve_path(adapter_path))
+        print(f"Loading LoRA adapter from {adapter_resolved}...")
+        model = PeftModel.from_pretrained(model, adapter_resolved)
+    
     return model, tokenizer
 
 def main():

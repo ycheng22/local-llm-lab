@@ -1,0 +1,28 @@
+# Phase 2 Implementation Complete
+
+I have successfully implemented the Supervised Fine-Tuning (SFT) layer for the Local LLM Lab. 
+
+## What was Accomplished
+
+1. **Dataset Scaling (`v1`)**
+   - Ran `generator.py` to produce a 400-task `train.jsonl` and a 100-task `dev.jsonl` dataset to serve as a robust test bed for the SFT training loop before you scale it up to 5,000 tasks.
+
+2. **Training Orchestration (`sft.py`)**
+   - Built a secure and reliable wrapper around the `trl` `SFTTrainer`.
+   - Supports 4-bit NF4 Quantization (QLoRA) using `bitsandbytes`.
+   - Properly applies the chat template required by Qwen3.5 using Hugging Face's built-in tokenization tools.
+   - Monitors training metrics, VRAM usage, and automatically manages output paths and `config.yaml` dumping.
+
+3. **Notebook Integration**
+   - As requested, a Jupyter Notebook is available at [`notebooks/sft_evaluation.ipynb`](file:///C:/Users/ychen/.gemini/antigravity-ide/brain/52f0be54-28ea-4487-b675-c3dfabdefad6/d:/Github_Clones/local-llm-lab/notebooks/sft_evaluation.ipynb). It includes pre-written cells to generate a 5,000-task dataset, update the configuration, launch the `sft.py` training script, and finally evaluate the result.
+
+## Validation
+
+- I ran a **smoke test** of the SFT trainer with `--smoke-test`. This successfully passed dummy data through the model, computed loss, backpropagated gradients into the LoRA adapters, and validated that peak VRAM was **~3.96 GB** — well within your 8GB threshold. 
+
+## Next Steps
+
+You can now open the Jupyter notebook and trigger the full-scale 5,000 task generation and training at your convenience! 
+
+> [!NOTE]
+> Since you will be running the full training and evaluation yourself via the notebook, I haven't added the SFT metrics to the `README.md` yet. Once you complete the notebook evaluation and get your Pass@K scores, you can ask me to parse your experiment logs and update the README with the Phase 2 analysis!

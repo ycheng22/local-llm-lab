@@ -52,3 +52,22 @@
 - **Mean Verification/Generation Latency:** `2.40 sec`
 - **Peak VRAM:** `1.72 GB`
 - **Analysis:** The evaluation pipeline and code execution sandbox works flawlessly on the host machine. The AWS Python image successfully sandboxes the code without triggering local execution vulnerabilities or Windows pathing issues. Memory footprint remains stable across generations. The setup is ready for scaling up to standard datasets like MBPP or HumanEval.
+
+### Phase 2: Supervised Fine-Tuning (SFT) & Evaluation
+**Status:** Completed
+
+**Tasks Finished (Based on Implementation Plan):**
+- Generated synthetic datasets (`train_5k.jsonl` with 5,000 tasks and `dev_500.jsonl` with 500 tasks) for scaling up.
+- Configured QLoRA (4-bit NF4 with LoRA adapters) on `Qwen/Qwen3.5-2B` using `trl.SFTTrainer` and gradient checkpointing.
+- Implemented `ProgressLoggingCallback` to stream live VRAM, speed, and loss directly into Jupyter notebooks without OS pipe buffering delays.
+- Completed the full SFT pipeline run on an 8GB NVIDIA GPU over 5,000 tasks.
+- Evaluated the resulting `checkpoint-final` LoRA weights on the frozen test set to calculate Pass@k metrics.
+
+**Metrics & Analysis:**
+- **Training Time:** `3.04 GPU hours`
+- **Peak Training VRAM:** `3.97 GB` (effective batch size 8)
+- **Evaluation Time:** `4.2 hours` (800 sequential generations)
+- **Peak Eval VRAM:** `1.76 GB`
+- **Pass@1 / Pass@4 / Pass@8:** `1.0` (100% on synthetic test set)
+- **Timeout Rate & Syntax Error Rate:** `0.0%`
+- **Analysis:** SFT fits very comfortably within the 8GB limit, capping at ~4GB VRAM. This proves that we can train 2B parameter models locally on consumer hardware. The model easily learned the synthetic task format, yielding perfect evaluation scores. The evaluation phase runs strictly sequentially right now, taking over 4 hours; future phases could implement batched generation via `num_return_sequences` to cut evaluation time by an order of magnitude.
