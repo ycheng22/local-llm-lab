@@ -1,0 +1,77 @@
+# Phase 3: GRPO Implementation Complete
+
+I have fully implemented the Reinforcement Learning pipeline using TRL's `GRPOTrainer` and our `DockerVerifier`.
+
+## New Files & Features
+1. **[grpo.py](file:///d:/Github_Clones/local-llm-lab/src/llm_lab/training/grpo.py)**
+   - Wraps the existing `DockerVerifier` into a custom TRL-compatible reward function (`verify_reward`).
+   - Uses `apply_chat_template` behind the scenes.
+   - Computes completions in batches (4 by default).
+   - Extracts candidate code from markdown and evaluates hidden tests to return a crisp 1.0 or 0.0 reward signal.
+   - Includes the same custom `ProgressLoggingCallback` as Phase 2 so you can monitor live VRAM, loss, and rewards directly in Jupyter.
+
+2. **[grpo_v1.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_v1.yaml) & [grpo_v1_5k.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_v1_5k.yaml)**
+   - YAML configs defining the training on your 400-task vs 5,000-task datasets.
+   - Both load the model weights from the Phase 2 SFT checkpoint.
+   - Configured with `num_generations: 4`, `gradient_accumulation_steps: 4`, and `max_prompt_length: 1024`.
+
+3. **[grpo_training.ipynb](file:///d:/Github_Clones/local-llm-lab/notebooks/grpo_training.ipynb)**
+   - The interactive Jupyter Notebook for executing the 5k-task GRPO run natively (bypassing the Windows CLI pipe buffering). 
+
+## Training Execution & Early Stopping
+The training run was executed in `notebooks/grpo_training.ipynb`. After running for approximately **45 hours**, the model completed **3,250 optimizer steps**.
+- **Peak VRAM**: `5.11 GB`
+- **Mean Reward**: `1.000` (on training batch)
+- **Effective Epochs**: Since batch size was effectively 4 tasks/step, 3,250 steps corresponds to `13,000` task passes. With a 5,000-task dataset, this represents >2.5 full epochs of data.
+
+Due to the heavy compute cost of GRPO (~197 hours ETA to finish 15,000 steps), we applied early stopping. Training for 2 epochs on the 5k dataset is more than enough to observe a policy shift.
+
+## Final Evaluation Results
+The evaluation on the 100-task OOD (Out-Of-Distribution) test set (`test.jsonl`) has completed successfully in the background.
+
+- **Pass@1 / Pass@4 / Pass@8**: `1.0000` (100%)
+- **Timeout Rate & Syntax Error Rate**: `0.0%`
+- **Mean Latency**: `46.25 sec` (batch of 8)
+- **Peak Eval VRAM**: `1.76 GB`
+
+### Phase 3 Conclusion
+Due to the simplicity of the synthetic 100-problem test set, the GRPO checkpoint maxed out the evaluation score, perfectly passing all tests just like the SFT baseline did. While the policy successfully learned to output correct solutions inside the sandbox, measuring the true delta in reasoning capabilities between SFT and GRPO will require a much harder benchmark (e.g., HumanEval, MBPP) in Phase 4.
+
+---
+
+# Phase 4: Hard Example Mining + RLVR v2
+
+I have started Phase 4 by building a Hard Example Miner and configuring the ablation studies.
+
+## New Files & Features
+1. **[miner.py](file:///d:/Github_Clones/local-llm-lab/src/llm_lab/data/miner.py) & [test_miner.py](file:///d:/Github_Clones/local-llm-lab/tests/test_miner.py)**
+   - Custom script that uses the SFT model to generate 4 candidate solutions per task.
+   - Evaluates them in the `DockerVerifier`.
+   - Bins tasks into `solved` (≥75% pass), `borderline` (50-74%), `hard` (1-24%), and `impossible` (0%).
+   - Generates ablation datasets: `random.jsonl`, `hard.jsonl`, and `mixed.jsonl` (70% hard + 30% random) all normalized to the exact same size for fair comparisons.
+
+2. **[mining.yaml](file:///d:/Github_Clones/local-llm-lab/configs/mining.yaml)**
+   - Configuration used by the miner to process 1,000 tasks from the training set using the SFT checkpoint.
+
+3. **Ablation Configurations**
+   - [grpo_ablation_random.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_ablation_random.yaml)
+   - [grpo_ablation_hard.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_ablation_hard.yaml)
+   - [grpo_ablation_mixed.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_ablation_mixed.yaml)
+   - YAML files prepared so you can quickly launch the GRPO ablation trainings once mining finishes.
+
+## Mining Results
+
+The miner successfully evaluated 500 tasks from the training set, generating 4 candidate solutions per task using the SFT checkpoint.
+
+**Classification Breakdown:**
+- **Solved (≥75% pass rate):** 500 tasks
+- **Borderline (50-74% pass rate):** 0 tasks
+- **Hard (1-24% pass rate):** 0 tasks
+- **Impossible (0% pass rate):** 0 tasks
+
+As anticipated at the end of Phase 3, the toy addition dataset is simply too easy for the Qwen3.5-2B model. The SFT checkpoint solved 100% of the tasks with a perfect 4/4 generation success rate for every single task.
+
+Because there are no "hard" or "borderline" tasks in the toy dataset, our ablation datasets (`hard.jsonl`, `mixed.jsonl`) are effectively empty.
+
+## Next Steps
+To continue Phase 4 meaningfully and run the dataset composition ablation studies (Random vs. Hard vs. Mixed), we will need to swap out the toy addition dataset for a more complex coding benchmark (e.g., a synthesized version of MBPP or HumanEval) where the base model actually struggles, allowing us to successfully mine hard examples.

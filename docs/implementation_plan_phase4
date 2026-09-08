@@ -1,0 +1,43 @@
+# Phase 4: Hard Example Mining + RLVR v2
+
+This document outlines the implementation plan for Phase 4, which focuses on mining hard examples from the dataset using the current model, and then conducting ablation studies on dataset composition.
+
+## Design Decisions
+- **Mining Dataset**: We will run the miner on a subset of **1,000 tasks** from `train_5k.jsonl` to keep the experiment duration reasonable.
+- **Base Model**: We will perform the mining using the **SFT checkpoint** (`experiments/exp01_sft_v1/checkpoint-final`), since the goal of hard mining is to identify examples the SFT model struggles with, and then apply RLVR to them.
+- **Ablation Configs**: We will create three new GRPO YAML configurations (`configs/grpo_ablation_random.yaml`, `configs/grpo_ablation_hard.yaml`, and `configs/grpo_ablation_mixed.yaml`) to run the Phase 4 ablation experiments.
+
+## Proposed Changes
+
+### 1. Hard Example Miner (`src/llm_lab/data/miner.py`)
+#### [NEW] `src/llm_lab/data/miner.py`
+Create a CLI script and class that:
+- Loads a dataset of tasks (e.g., `train_5k.jsonl`).
+- Loads the specified model.
+- Generates 4 candidate solutions per task.
+- Uses `DockerVerifier` to verify each candidate and computes Pass@4 for the task.
+- Classifies each task into:
+  - `solved`: Pass@4 >= 0.75
+  - `borderline`: 0.25 <= Pass@4 < 0.75
+  - `hard`: 0 < Pass@4 < 0.25
+  - `impossible`: Pass@4 == 0
+- Outputs `mining_report.json`, `hard.jsonl`, `borderline.jsonl`, and `mixed.jsonl` to an output directory (e.g., `data/mined/exp03/`).
+
+### 2. Miner Tests (`tests/test_miner.py`)
+#### [NEW] `tests/test_miner.py`
+Create unit tests to verify that the classification logic works properly (mocking out the LLM and DockerVerifier to ensure the boundaries `0`, `0.25`, and `0.75` route tasks to the correct sets).
+
+### 3. Ablation Configurations
+#### [NEW] `configs/grpo_ablation_random.yaml`
+#### [NEW] `configs/grpo_ablation_hard.yaml`
+#### [NEW] `configs/grpo_ablation_mixed.yaml`
+Create three GRPO configuration files pointing to the new mined datasets, so we can run training on them and populate the Phase 4 ablation table.
+
+## Verification Plan
+
+### Automated Tests
+- Run `pytest tests/test_miner.py` to ensure the classification bins and JSONL dataset generation logic are sound.
+
+### Manual Verification
+- We will execute the miner on a small toy dataset to verify the end-to-end flow (Model Generation -> Verification -> Classification -> Output generation).
+- You will need to manually kick off the ablation training runs on the GPU once the datasets are ready.
