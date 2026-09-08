@@ -1,0 +1,57 @@
+# Phase 3: GRPO / RLVR Implementation Plan
+
+This document outlines the approach to implementing Phase 3 (Reinforcement Learning with Verifiable Rewards via GRPO) on top of the SFT model trained in Phase 2.
+
+## Goal
+Apply GRPO (Group Relative Policy Optimization) reinforcement learning using the verifiable rewards (hidden tests passing = 1.0, otherwise 0.0). Prove that RLVR Pass@1 > SFT Pass@1 on our frozen test set.
+
+## Proposed Changes
+
+### 1. Configuration (`configs/grpo_v1.yaml`)
+Create a YAML configuration based on the reference design, specifying:
+- **Base model**: `experiments/exp01_sft_v1/checkpoint-final` (the output of Phase 2).
+- **QLoRA**: 4-bit NF4 quantization, LoRA with r=16.
+- **GRPO hyperparams**: 
+  - `num_generations: 4` (to fit within 8GB VRAM)
+  - `max_prompt_length: 1024`
+  - `max_completion_length: 384`
+  - `learning_rate: 1e-5`
+  - `per_device_train_batch_size: 1`
+  - `gradient_accumulation_steps: 4`
+  - `gradient_checkpointing: true`
+- **Reward**: 1.0 for passing all tests, 0.0 otherwise.
+
+### 2. Reward Adapter & Trainer (`src/llm_lab/training/grpo.py`)
+Implement the RL loop using `trl.GRPOTrainer`:
+- **Dataset Preparation**: Map the `train.jsonl` schema into the format expected by TRL (`prompt` column).
+- **Reward Function**: 
+  - `def verify_reward(prompts, completions, **kwargs)`
+  - Iterates through the generated completions.
+  - Extracts the raw code from the completions.
+  - Instantiates `DockerVerifier`.
+  - Runs each completion through the sandbox and returns `1.0` if `passed == True` else `0.0`.
+- **Custom Logging**: Record completion lengths, reward mean, and standard deviation to track if the GRPO group maintains a learning signal (as specified in Phase 3 docs).
+- **Rollout Logging**: Save all generations and their rewards to `experiments/exp02_grpo_v1/generations.jsonl` for offline analysis.
+
+### 3. Notebook Execution (`notebooks/grpo_training.ipynb`)
+Create a Jupyter notebook to execute `grpo.py`. 
+- As we learned during the SFT phase, invoking the trainer directly through the Python kernel in a notebook resolves Windows `!python` CLI output buffering issues.
+- The notebook will load `grpo_v1.yaml`, run the `GRPOTrainer`, and provide real-time TQDM progress bars and GPU memory diagnostics.
+
+## Verification Plan
+
+### Automated Verification
+- Run a smoke test (e.g. `max_steps=2`) in `grpo.py` to ensure the `DockerVerifier` reward function executes correctly and assigns rewards without crashing or OOMing.
+- Check that `experiments/exp02_grpo_v1/generations.jsonl` correctly populates with responses and rewards.
+
+### Manual Verification
+- You will trigger the Jupyter Notebook execution.
+- We will monitor peak VRAM (must stay under 8GB, ideally ~4-6GB with batch size 1 and 4 generations).
+- We will monitor `reward_mean` to ensure it is trending upwards, and `reward_std` to ensure it doesn't collapse to 0.
+
+---
+
+> [!IMPORTANT]
+> **User Review Required**: 
+> 1. GRPO with 4 generations (batch size 1 * 4 generations = 4 parallel paths per forward pass) may still push the 8GB memory envelope, depending on the context lengths of the training examples. If it OOMs, we may need to implement generation chunking or reduce max_prompt_length. Does this setup sound good to start?
+> 2. Would you like to use the 400-task `train.jsonl` or the 5K `train_5k.jsonl` dataset for this RL phase? (I recommend starting with 400 or 500 for the first run to ensure it trains quickly).

@@ -1,0 +1,30 @@
+# Phase 3: GRPO Implementation Complete
+
+I have fully implemented the Reinforcement Learning pipeline using TRL's `GRPOTrainer` and our `DockerVerifier`.
+
+## New Files & Features
+1. **[grpo.py](file:///d:/Github_Clones/local-llm-lab/src/llm_lab/training/grpo.py)**
+   - Wraps the existing `DockerVerifier` into a custom TRL-compatible reward function (`verify_reward`).
+   - Uses `apply_chat_template` behind the scenes.
+   - Computes completions in batches (4 by default).
+   - Extracts candidate code from markdown and evaluates hidden tests to return a crisp 1.0 or 0.0 reward signal.
+   - Includes the same custom `ProgressLoggingCallback` as Phase 2 so you can monitor live VRAM, loss, and rewards directly in Jupyter.
+
+2. **[grpo_v1.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_v1.yaml) & [grpo_v1_5k.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_v1_5k.yaml)**
+   - YAML configs defining the training on your 400-task vs 5,000-task datasets.
+   - Both load the model weights from the Phase 2 SFT checkpoint.
+   - Configured with `num_generations: 4`, `gradient_accumulation_steps: 4`, and `max_prompt_length: 1024`.
+
+3. **[grpo_training.ipynb](file:///d:/Github_Clones/local-llm-lab/notebooks/grpo_training.ipynb)**
+   - The interactive Jupyter Notebook for executing the 5k-task GRPO run natively (bypassing the Windows CLI pipe buffering). 
+
+## Training Execution & Early Stopping
+The training run was executed in `notebooks/grpo_training.ipynb`. After running for approximately **24 hours**, the model completed **2,880 optimizer steps**.
+- **Peak VRAM**: `5.11 GB`
+- **Mean Reward**: `1.000` (on training batch)
+- **Effective Epochs**: Since batch size was effectively 4 tasks/step, 2,880 steps corresponds to `11,520` task passes. With a 5,000-task dataset, this represents >2 full epochs of data.
+
+Due to the heavy compute cost of GRPO (~197 hours ETA to finish 15,000 steps), we applied early stopping. Training for 2 epochs on the 5k dataset is more than enough to observe a policy shift.
+
+## Next Steps
+Evaluation on the 500-task OOD (Out-Of-Distribution) test set is currently running in the background using `configs/grpo_v1_5k_eval.yaml`. Once the background evaluation finishes, we will have the final `Pass@1`, `Pass@4`, and `Pass@8` metrics to conclude Phase 3 and start comparing the capability gains per compute unit!

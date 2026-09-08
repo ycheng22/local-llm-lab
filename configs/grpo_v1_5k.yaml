@@ -1,0 +1,43 @@
+experiment:
+  id: exp02_grpo_v1_5k
+
+model:
+  base_checkpoint: experiments/exp01_sft_v1/checkpoint-final
+  cache_dir: D:/huggingface_cache
+  local_files_only: true
+
+quantization:
+  enabled: true
+  bits: 4
+  quant_type: nf4
+  compute_dtype: bfloat16
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.05
+
+grpo:
+  num_generations: 4
+  max_prompt_length: 1024
+  max_completion_length: 384
+  learning_rate: 0.00001
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 250
+
+reward:
+  type: pytest
+  pass_reward: 1.0
+  fail_reward: 0.0
+
+dataset:
+  train: data/train_5k.jsonl
+  eval: data/dev_500.jsonl
+
+logging:
+  output_dir: experiments/exp02_grpo_v1_5k
+  log_completions: true

@@ -1,0 +1,22 @@
+# Phase 3: GRPO Implementation Complete
+
+I have fully implemented the Reinforcement Learning pipeline using TRL's `GRPOTrainer` and our `DockerVerifier`.
+
+## New Files & Features
+1. **[grpo.py](file:///d:/Github_Clones/local-llm-lab/src/llm_lab/training/grpo.py)**
+   - Wraps the existing `DockerVerifier` into a custom TRL-compatible reward function (`verify_reward`).
+   - Uses `apply_chat_template` behind the scenes.
+   - Computes completions in batches (4 by default).
+   - Extracts candidate code from markdown and evaluates hidden tests to return a crisp 1.0 or 0.0 reward signal.
+   - Includes the same custom `ProgressLoggingCallback` as Phase 2 so you can monitor live VRAM, loss, and rewards directly in Jupyter.
+
+2. **[grpo_v1.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_v1.yaml) & [grpo_v1_5k.yaml](file:///d:/Github_Clones/local-llm-lab/configs/grpo_v1_5k.yaml)**
+   - YAML configs defining the training on your 400-task vs 5,000-task datasets.
+   - Both load the model weights from the Phase 2 SFT checkpoint.
+   - Configured with `num_generations: 4`, `gradient_accumulation_steps: 4`, and `max_prompt_length: 1024`.
+
+3. **[grpo_training.ipynb](file:///d:/Github_Clones/local-llm-lab/notebooks/grpo_training.ipynb)**
+   - The interactive Jupyter Notebook for executing the 5k-task GRPO run natively (bypassing the Windows CLI pipe buffering). 
+
+## Next Steps
+You can open `notebooks/grpo_training.ipynb` to launch the 5K training run! The `ProgressLoggingCallback` will print speed, VRAM, and **live reward updates** throughout the process.

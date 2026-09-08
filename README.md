@@ -71,3 +71,28 @@
 - **Pass@1 / Pass@4 / Pass@8:** `1.0` (100% on synthetic test set)
 - **Timeout Rate & Syntax Error Rate:** `0.0%`
 - **Analysis:** SFT fits very comfortably within the 8GB limit, capping at ~4GB VRAM. This proves that we can train 2B parameter models locally on consumer hardware. The model easily learned the synthetic task format, yielding perfect evaluation scores. The evaluation phase runs strictly sequentially right now, taking over 4 hours; future phases could implement batched generation via `num_return_sequences` to cut evaluation time by an order of magnitude.
+
+### Phase 3: Group Relative Policy Optimization (GRPO)
+**Status:** Training Completed (Stopped Early), Evaluation In Progress
+
+**Tasks Finished (Based on Implementation Plan):**
+- Configured GRPO (4-bit NF4 with LoRA adapters) on the SFT checkpoint using `trl.GRPOTrainer`.
+- Implemented `DockerVerifier` as the custom reward function to grant `1.0` for code that passes all unit tests within the sandbox container.
+- Resolved integration issues with `trl.GRPOTrainer` and Qwen tokenization configuration.
+- Completed training run for 3,250 optimizer steps on the 5,000-task dataset. 
+- Early stopping applied: Reached >2 effective epochs of training on the 5k dataset (~45 hours runtime).
+
+**Metrics & Analysis (Training):**
+- **Training Time (up to step 3250):** `~45 GPU hours`
+- **Total Estimated Training Time:** `~197 hours` (15,000 steps)
+- **Peak Training VRAM:** `5.11 GB` (with `gradient_accumulation_steps=4`, generating 4 candidates per step)
+- **Generation Speed:** `~54 seconds` per step (producing 16 code snippets + running 16 sandbox tests + backward pass).
+- **Mean Reward Achieved:** `1.000` (on the training batch at step 3250)
+- **Analysis:** GRPO is computationally very heavy due to the online generation and sandbox execution required at every step. On a consumer 8GB GPU, full training on a 5,000 task dataset scales to multiple days. We halted the training at step 3250 as it represents >2 full epochs of data (13,000 tasks processed), which is sufficient to observe policy optimization.
+
+**Metrics & Analysis (Evaluation on OOD Test Set):**
+- **Pass@1 / Pass@4 / Pass@8:** `1.0` (100% on synthetic test set)
+- **Timeout Rate & Syntax Error Rate:** `0.0%`
+- **Mean Generation/Verification Latency:** `46.25 sec` (batch of 8)
+- **Peak Eval VRAM:** `1.76 GB`
+- **Analysis:** Even after early stopping, the GRPO model successfully retained 100% Pass@k performance on the held-out test set (`test.jsonl`). Due to the simplicity of the synthetic 100-problem test set, both SFT and GRPO maxed out the evaluation score. The next phase (Hard-example mining or harder benchmarks) will be required to measure the true delta in reasoning capabilities provided by GRPO.

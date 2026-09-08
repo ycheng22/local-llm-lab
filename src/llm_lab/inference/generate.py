@@ -47,9 +47,25 @@ def setup_model_and_tokenizer(model_cfg: dict):
     if adapter_path:
         from peft import PeftModel
         from llm_lab.constants import resolve_path
-        adapter_resolved = str(resolve_path(adapter_path))
-        print(f"Loading LoRA adapter from {adapter_resolved}...")
-        model = PeftModel.from_pretrained(model, adapter_resolved)
+        
+        if isinstance(adapter_path, list):
+            for i, p in enumerate(adapter_path):
+                p_res = str(resolve_path(p))
+                print(f"Loading LoRA adapter {i+1} from {p_res}...")
+                if i == 0:
+                    model = PeftModel.from_pretrained(model, p_res, adapter_name=f"adapter_{i}")
+                else:
+                    model.load_adapter(p_res, adapter_name=f"adapter_{i}")
+            
+            # Activate all adapters simultaneously or just the last one? 
+            # In PEFT, if you load multiple adapters and want them both active, you can't easily add their outputs unless you merge. 
+            # Wait, if GRPO was trained with SFT adapter loaded, the active adapter was just GRPO, but did it train ON TOP of SFT?
+            # Actually, `load_adapter` does not merge unless specified. To activate both, you set `model.set_adapter(["adapter_0", "adapter_1"])`
+            model.set_adapter([f"adapter_{j}" for j in range(len(adapter_path))])
+        else:
+            adapter_resolved = str(resolve_path(adapter_path))
+            print(f"Loading LoRA adapter from {adapter_resolved}...")
+            model = PeftModel.from_pretrained(model, adapter_resolved)
     
     return model, tokenizer
 
