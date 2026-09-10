@@ -1,0 +1,25 @@
+experiment:
+  id: exp04_search_complex
+  description: "Test-time compute scaling on complex tasks (K=1 to 16)"
+
+model:
+  id: Qwen/Qwen3.5-2B
+  adapter_path: experiments/exp01_sft_v1/checkpoint-final
+  cache_dir: D:/huggingface_cache
+  local_files_only: true
+  load_in_4bit: true
+  device_map: auto
+
+generation:
+  max_new_tokens: 384
+  temperature: 0.8  # Slightly higher temperature for better diversity at K=16
+  top_p: 0.95
+  do_sample: true
+
+evaluation:
+  dataset: data/train_complex_500.jsonl
+  max_tasks: 100 # Reduced to 100 tasks to keep K=16 evaluation time reasonable
+  num_samples: [1, 2, 4, 8, 16]
+
+logging:
+  output_dir: experiments/exp04_search_complex
