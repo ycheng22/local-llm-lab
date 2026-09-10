@@ -96,3 +96,22 @@
 - **Mean Generation/Verification Latency:** `46.25 sec` (batch of 8)
 - **Peak Eval VRAM:** `1.76 GB`
 - **Analysis:** Even after early stopping, the GRPO model successfully retained 100% Pass@k performance on the held-out test set (`test.jsonl`). Due to the simplicity of the synthetic 100-problem test set, both SFT and GRPO maxed out the evaluation score. The next phase (Hard-example mining or harder benchmarks) will be required to measure the true delta in reasoning capabilities provided by GRPO.
+
+### Phase 4: Hard-Example Mining (Ablation Study)
+**Status:** Mining Completed (Training Skipped due to dataset difficulty)
+
+**Tasks Finished (Based on Implementation Plan):**
+- Migrated dataset pipeline to use the `google-research-datasets/mbpp` (sanitized) complex Python coding benchmark.
+- Filtered and formatted 420 MBPP tasks into `TaskSchema` format.
+- Executed the `mining_complex.yaml` job using the Phase 2 SFT checkpoint to generate 4 solutions per task.
+- Classified the 420 tasks into `solved` (≥3/4), `borderline` (2/4), `hard` (1/4), and `impossible` (0/4).
+
+**Metrics & Analysis (Data Composition & Mining):**
+- **Total Tasks Processed:** `420`
+- **Samples per Task (n):** `4`
+- **Classification Results:**
+  - `solved`: 0 (0%)
+  - `borderline`: 0 (0%)
+  - `hard`: 0 (0%)
+  - `impossible`: 420 (100%)
+- **Analysis:** The `Qwen3.5-2B` model failed completely on the MBPP complex coding dataset, scoring 0% Pass@4 across all 420 tasks. Because every single task fell into the `impossible` category, it is mathematically impossible to construct the `hard` and `borderline` ablation datasets required for the Phase 4 GRPO curriculum training. This is a crucial finding: a 2B parameter model cannot bootstrap its own capabilities via Hard Example Mining if the dataset is too far outside its distribution. It requires at least a non-zero Pass@K rate to extract learning signals. We will skip the GRPO v2 training on this dataset and proceed directly to Phase 5 (Test-Time Compute Scaling) to observe if massive scale sampling (K=16+) can uncover any hidden capabilities.
