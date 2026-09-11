@@ -1,0 +1,7 @@
+experiment_id,date,model,method,dataset_version,train_examples,pass_at_1,pass_at_4,pass_at_8,ood_pass_at_1,mean_reward,reward_std,eval_loss,task_completion_rate,steps_to_success,recovery_rate,mean_completion_tokens,mean_latency,timeout_rate,gpu_hours,tokens_trained,tokens_generated,peak_vram_gb,peak_ram_gb,learning_rate,batch_size,grad_accum,num_generations,context_length,max_completion_length,lora_rank
+exp05_agent_2b,,,eval,,0,,,,,,,,0.2,5.0,0.2,,,,0.0,0,0,,,,,,,,,
+exp05_agent_4b,,,eval,,0,,,,,,,,0.3,4.833333333333333,0.2631578947368421,,,,0.0,0,0,,,,,,,,,
+exp00_eval,2026-09-04T04:07:46Z,Qwen/Qwen3.5-2B,eval,data/test.jsonl,0,1.0,,,,,,,,,,,2.39847993850708,0.0,0.0,0,0,1.720940113067627,26.96600341796875,,,,,,256.0,
+exp01_sft_v1_eval,2026-09-04T08:05:17Z,Qwen/Qwen3.5-2B,eval,data/test.jsonl,0,1.0,1.0,1.0,,,,,,,,,21.600823639929295,0.0,3.0404082078403896,0,0,3.9754743576049805,23.658313751220703,,,,,,384.0,
+exp02_grpo_v1_5k_eval,2026-09-07T03:18:48Z,Qwen/Qwen3.5-2B,eval,data/test.jsonl,0,1.0,1.0,1.0,,,,,,,,,46.246508170962336,0.0,45.0,0,0,5.11,27.39242935180664,,,,,,384.0,
+exp04_search_complex,2026-09-10T02:23:38Z,Qwen/Qwen3.5-2B,eval,data/train_complex_500.jsonl,0,0.029375,0.059554945054945053,0.07715306915306916,,,,,,,,,17.155663818717002,0.000625,0.0,0,0,1.765629768371582,22.695140838623047,,,,,,384.0,
