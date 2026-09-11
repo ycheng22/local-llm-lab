@@ -1,0 +1,18 @@
+experiment:
+  id: exp05_agent_4b
+  description: "Agent loop evaluation on Qwen3.5-4B base model"
+
+model:
+  id: Qwen/Qwen3.5-4B
+  cache_dir: D:/huggingface_cache
+  local_files_only: true
+  load_in_4bit: true
+  device_map: auto
+
+evaluation:
+  dataset: data/train_complex_500.jsonl
+  max_tasks: 20  # Agent loops are expensive, test on 20 tasks
+  max_steps: 5
+
+logging:
+  output_dir: experiments

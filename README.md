@@ -132,3 +132,37 @@
 - **Pass@16:** `10.0%`
 - **Mean Latency per Sample:** `17.15s`
 - **Analysis:** This is a breakthrough finding! In Phase 4, the model scored 0% Pass@4 with a standard temperature. However, by slightly increasing the generation temperature and expanding the search budget at test time to K=16, the model successfully solved **10%** of the "impossible" complex tasks. This confirms that small language models (like Qwen3.5-2B) often possess the latent knowledge required to solve complex problems, but they struggle to find the correct reasoning path reliably on the first try. Test-Time Compute Scaling successfully bridges this gap, proving that giving a model "more time to think" (by generating more candidates) directly translates to higher verifiable coding capability, even without additional parameter updates!
+
+### Phase 6: Tool-Use Agent & 4B Parameter Scaling
+**Status:** Completed
+
+**Tasks Finished (Based on Implementation Plan):**
+- Built an autonomous ReAct agent loop (`llm_lab.agent`) featuring workspace file management (`read_file`, `write_file`), secure sandbox execution (`run_tests`), and task submission (`submit`).
+- Implemented robust multi-strategy parsing in `extract_action` supporting both strict ReAct tool syntax and zero-shot fallback routing for raw Python code blocks.
+- Developed the agent evaluation runner and metrics tracker measuring `task_completion_rate`, `recovery_rate` (ability to fix broken code following test failure feedback), and `steps_to_success`.
+- Cached and loaded the secondary scaling model (`Qwen/Qwen3.5-4B`) in 4-bit NF4 precision on consumer hardware (peak VRAM ~3.5 GB).
+- Executed the autonomous agent loop across 20 complex coding tasks from `train_complex_500.jsonl` on both `Qwen3.5-2B` (SFT checkpoint) and `Qwen3.5-4B` (Base model).
+- Consolidated all outputs and comparison metrics to root-level `experiments/exp05_agent_2b` and `experiments/exp05_agent_4b`.
+
+**Metrics & Comparison:**
+
+| Metric | Qwen3.5-2B (SFT) | Qwen3.5-4B (Base) | Scaling Impact / Delta |
+| :--- | :--- | :--- | :--- |
+| **Model Size** | 2 Billion Parameters | 4 Billion Parameters | 2x Parameters |
+| **Checkpoint** | SFT `checkpoint-final` | Base Pretrained | Scaling vs. Fine-tuning |
+| **Precision** | 4-bit NF4 | 4-bit NF4 | Consumer 8GB GPU |
+| **Peak VRAM** | ~1.8 GB | ~3.5 GB | Fits comfortably (<8GB) |
+| **Evaluated Tasks** | 20 complex tasks | 20 complex tasks | MBPP complex subset |
+| **Task Completion Rate** | **20.0%** (4/20) | **30.0%** (6/20) | **+10.0% (+50% relative gain)** |
+| **Recovery Rate** | **20.0%** (4/20) | **26.3%** (5/19) | **+6.3% higher self-repair** |
+| **Avg Steps to Success** | 5.00 steps | 4.83 steps | Faster convergence |
+| **Tasks Passed** | `mbpp_605`, `mbpp_606`, `mbpp_618`, `mbpp_624` | `mbpp_604`, `mbpp_605`, `mbpp_618`, `mbpp_620`, `mbpp_623`, `mbpp_624` | Solved 2 additional complex tasks |
+
+**Analysis & Key Takeaways:**
+1. **Tool Feedback Doubles Coding Capability Over Best-of-N Sampling:**
+   - In Phase 5, unguided test-time search (Best-of-16) achieved a 10.0% pass rate.
+   - Giving the 2B model access to tools (`write_file`, `run_tests`) doubled the pass rate to **20.0%**, with **100% of the successful tasks resulting from test-failure recovery**. When initial code crashed on hidden tests, the model inspected the error trace, diagnosed the bug, and updated `main.py`.
+2. **Model Parameter Scaling Delivers Substantial Zero-Shot Gains:**
+   - The un-fine-tuned `Qwen3.5-4B` base model achieved a **30.0% Completion Rate** and **26.3% Recovery Rate**, easily outperforming the fine-tuned 2B SFT model.
+   - The 4B model demonstrated significantly stronger semantic error comprehension (e.g., recognizing function name mismatches and algorithm boundary conditions) and faster convergence (4.83 avg steps).
+   - Peak VRAM for 4B in 4-bit was ~3.5 GB, confirming that 4B parameter models can run full autonomous coding loops on consumer 8GB GPUs.

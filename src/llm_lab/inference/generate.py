@@ -17,6 +17,9 @@ def setup_model_and_tokenizer(model_cfg: dict):
     cache_dir = model_cfg.get("cache_dir")
     local_files_only = model_cfg.get("local_files_only", False)
     
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     quantization_config = None
     if model_cfg.get("load_in_4bit", False):
         quantization_config = BitsAndBytesConfig(

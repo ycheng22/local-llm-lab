@@ -1,0 +1,60 @@
+# Phase 6 Walkthrough: Tool-Use Agent & 4B Parameter Scaling
+
+## Overview
+
+In Phase 6, we built and evaluated an autonomous **Tool-Use Agent** (`llm_lab.agent`) and benchmarked the scaling impact of moving from **Qwen3.5-2B** to **Qwen3.5-4B** on 20 complex coding tasks from `train_complex_500.jsonl`.
+
+---
+
+## 1. Components Implemented
+
+1. **Secure Docker Workspace (`llm_lab.agent.workspace.AgentWorkspace`)**:
+   - Manages temporary sandboxed directories mounted to Docker containers.
+   - Provides safe operations: `read_file()`, `write_file()`, `run_tests()`, and `cleanup()`.
+   - Never runs untrusted code on the Windows host.
+
+2. **Autonomous ReAct Agent Loop (`llm_lab.agent.loop`)**:
+   - Prompts the LLM with tool definitions, instructions, and in-context 1-shot demonstrations.
+   - Implements robust multi-strategy parsing in `extract_action`:
+     - Standard ReAct syntax: `Action: <tool>` and `Action Input: <arg>`.
+     - Zero-shot fallback: routes raw Python code blocks directly to `write_file("main.py", ...)`.
+     - Detects `run_tests()`, `read_file`, and `submit()`.
+   - Feeds test stdout/stderr feedback back to the LLM observation window.
+
+3. **Metrics Tracking (`llm_lab.agent.evaluator`)**:
+   - `task_completion_rate`: fraction of tasks that ultimately pass hidden tests.
+   - `recovery_rate`: $\frac{\text{initial failures that become successes}}{\text{total initial failures}}$.
+   - `steps_to_success`: mean tool actions taken for successful completions.
+
+4. **Notebooks & Reproducibility**:
+   - [notebooks/agent_evaluation.ipynb](file:///d:/Github_Clones/local-llm-lab/notebooks/agent_evaluation.ipynb): Evaluates the 2B SFT model.
+   - [notebooks/agent_evaluation_4b.ipynb](file:///d:/Github_Clones/local-llm-lab/notebooks/agent_evaluation_4b.ipynb): Evaluates the 4B base model and renders side-by-side comparison tables.
+
+---
+
+## 2. Experimental Results & Comparison
+
+| Metric | Qwen3.5-2B (SFT) | Qwen3.5-4B (Base) | Scaling Impact / Delta |
+| :--- | :--- | :--- | :--- |
+| **Model Size** | 2 Billion Parameters | 4 Billion Parameters | 2x Parameters |
+| **Checkpoint** | SFT `checkpoint-final` | Base Pretrained | Scaling vs. SFT |
+| **Precision** | 4-bit NF4 | 4-bit NF4 | Consumer 8GB GPU |
+| **Peak VRAM** | ~1.8 GB | ~3.5 GB | Fits comfortably (<8GB) |
+| **Evaluated Tasks** | 20 complex tasks | 20 complex tasks | MBPP complex subset |
+| **Task Completion Rate** | **20.0%** (4/20) | **30.0%** (6/20) | **+10.0% (+50% relative gain)** |
+| **Recovery Rate** | **20.0%** (4/20) | **26.3%** (5/19) | **+6.3% higher self-repair** |
+| **Avg Steps to Success** | 5.00 steps | 4.83 steps | Faster convergence |
+| **Tasks Passed** | `mbpp_605`, `mbpp_606`, `mbpp_618`, `mbpp_624` | `mbpp_604`, `mbpp_605`, `mbpp_618`, `mbpp_620`, `mbpp_623`, `mbpp_624` | Solved 2 additional complex tasks |
+
+---
+
+## 3. Key Scientific Findings
+
+1. **Autonomous Tool Feedback vs. Single-Turn Search**:
+   - In Phase 5, random test-time search (Best-of-16) achieved 10.0% on these tasks.
+   - In Phase 6, giving the 2B model tool feedback doubled its capability to **20.0%**, with **100% of the passes driven by error recovery**.
+2. **4B Parameter Scaling Outperforms 2B SFT**:
+   - `Qwen3.5-4B` reached **30.0% completion** and **26.3% recovery** out-of-the-box without SFT fine-tuning.
+   - The 4B model accurately reasoned over error traces (e.g. diagnosing function name mismatches and updating the code in the next turn).
+3. **Hardware Efficiency**:
+   - Both models ran on local consumer hardware without exceeding 4 GB VRAM (2B ~1.8 GB, 4B ~3.5 GB).

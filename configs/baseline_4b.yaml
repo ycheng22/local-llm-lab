@@ -1,0 +1,23 @@
+experiment:
+  id: exp06_baseline_4b
+  description: "Qwen3.5-4B baseline"
+
+model:
+  id: Qwen/Qwen3.5-4B
+  cache_dir: "D:/huggingface_cache"
+  local_files_only: true
+  load_in_4bit: true
+  device_map: auto
+
+generation:
+  max_new_tokens: 384
+  temperature: 0.7
+  top_p: 0.9
+  do_sample: true
+
+evaluation:
+  dataset: data/test_v1.jsonl
+  num_samples: [1, 4, 8]
+
+logging:
+  output_dir: experiments/exp06_baseline_4b
