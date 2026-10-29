@@ -53,3 +53,11 @@ experiments/exp*/*
 !experiments/exp*/*.md
 
 reports/figures/*
+
+# Kaggle
+kaggle.json
+access_token
+kaggle/datasets/llm-lab-wheels/*.whl
+kaggle/**/__pycache__/
+experiments/kaggle_outputs/
+experiments/kaggle_checkpoints/

@@ -1,0 +1,15 @@
+{
+  "title": "LLM Lab Wheels",
+  "subtitle": "Offline wheels for Local LLM Lab notebooks",
+  "id": "ycheng22/llm-lab-wheels",
+  "licenses": [
+    {
+      "name": "Apache 2.0"
+    }
+  ],
+  "keywords": [
+    "llm",
+    "code-generation"
+  ],
+  "description": "Pinned pip wheels for installing the training/eval stack without internet or install-time GPU billing."
+}

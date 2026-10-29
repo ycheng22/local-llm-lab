@@ -1,0 +1,15 @@
+{
+  "title": "LLM Lab Utils",
+  "subtitle": "Shared Python library for the Local LLM Lab notebooks",
+  "id": "ycheng22/llm-lab-utils",
+  "licenses": [
+    {
+      "name": "Apache 2.0"
+    }
+  ],
+  "keywords": [
+    "llm",
+    "code-generation"
+  ],
+  "description": "Shared library (verifier, metrics, evaluator, miner, agent loop, plots) for the Local LLM Lab Kaggle notebooks."
+}

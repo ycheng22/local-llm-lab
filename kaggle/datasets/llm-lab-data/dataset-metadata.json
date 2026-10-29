@@ -1,0 +1,15 @@
+{
+  "title": "LLM Lab Data",
+  "subtitle": "Synthetic + MBPP coding tasks for the Local LLM Lab",
+  "id": "ycheng22/llm-lab-data",
+  "licenses": [
+    {
+      "name": "Apache 2.0"
+    }
+  ],
+  "keywords": [
+    "llm",
+    "code-generation"
+  ],
+  "description": "JSONL task sets (train, train_5k, dev, dev_500, frozen test, train_complex_500 from MBPP). See MANIFEST.sha256. test.jsonl is frozen and must never change."
+}
