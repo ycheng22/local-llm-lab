@@ -1,0 +1,23 @@
+{
+ "python": "3.13.15 (main, Aug  6 2026, 11:06:22) [GCC 13.3.0]",
+ "pins": [
+  "transformers==5.16.1",
+  "trl==1.12.0",
+  "peft==0.20.0",
+  "accelerate==1.15.0",
+  "bitsandbytes==0.50.2",
+  "datasets==5.0.1",
+  "pydantic==2.13.5",
+  "pyyaml==6.0.3",
+  "psutil==7.2.2",
+  "tqdm==4.70.0"
+ ],
+ "wheels": [
+  "accelerate-1.15.0-py3-none-any.whl",
+  "bitsandbytes-0.50.2-py3-none-manylinux_2_24_x86_64.whl",
+  "datasets-5.0.1-py3-none-any.whl",
+  "psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+  "tqdm-4.70.0-py3-none-any.whl",
+  "trl-1.12.0-py3-none-any.whl"
+ ]
+}

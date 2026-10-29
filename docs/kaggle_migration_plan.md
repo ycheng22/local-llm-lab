@@ -6,6 +6,23 @@
 
 ---
 
+## 0. 修订记录（实测结果优先于下文旧假设）
+
+> 下文章节保留原始设计思路；与本节冲突时，**以本节为准**。
+
+| # | 原假设 | 实测 / 修正 | 状态 |
+|:--|:---|:---|:---|
+| 1 | 目录为 `kaggle/llm_lab_utils/` | Kaggle 挂载 Dataset 根目录，包必须嵌套：`kaggle/datasets/<slug>/llm_lab_utils/`；`sys.path.insert(0, '/kaggle/input/llm-lab-utils')` | 已实现 |
+| 2 | 打包完整离线 wheel（含 vllm） | Kaggle 镜像（Python 3.13, torch 2.11, transformers 5.16.1, peft 0.20.0）已含大部分依赖。仅需 6 个包：trl, bitsandbytes, accelerate, datasets, psutil, tqdm（45 MB）。用 `pip --dry-run --report` 求差集，绝不下载 torch/nvidia/triton | 已完成 (`00-build-wheels`) |
+| 3 | **vLLM 双卡分流 (3-5x)** | **取消。** 安装 vLLM 会变更 105 个包并把 torch 2.11 替换为 2.13 + CUDA 13，可能破坏环境。NB 06 改用 HF `generate`（可用双卡 `device_map` 或 policy/rollout 分卡），GRPO 耗时估计需重算 | 已决定 |
+| 4 | bf16 LoRA 无量化噪声 | T4 (Turing) **无原生 bf16**，bf16 走模拟，可能很慢。**待 NB 01 实测 bf16 vs fp16 的速度/显存/输出质量后再定**；默认假设改为 fp16 compute | **待验证** |
+| 5 | GRPO 6-8 hr、总计 18-24 GPU hr | 依赖 #3 #4，**待 NB 01 实测每步耗时后重算**；在此之前不要启动 NB 06 | **待验证** |
+| 6 | `kernel-metadata.json` 的 title 任意 | title 必须能 slugify 为 id，否则 Kaggle 使用 title 的 slug（例：id `00-build-wheels` + title `... Local LLM Lab` 得到 `00-build-wheels-local-llm-lab`） | 已踩坑 |
+| 7 | 本地 PATH 有 `kaggle` | CLI 装在仓库 `.venv`；脚本通过 `kaggle/scripts/_env.ps1` 自动加入 PATH | 已实现 |
+| 8 | Wheels 设为 Public | 仅 45 MB，保持 Private（占用可忽略） | 已决定 |
+
+---
+
 ## 1. Kaggle 六大免费额度速查 & 使用规则
 
 ### 1.1 额度一览表
