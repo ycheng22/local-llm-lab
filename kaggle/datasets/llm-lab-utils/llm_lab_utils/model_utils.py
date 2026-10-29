@@ -11,15 +11,17 @@ def load_config(config_path: str) -> dict:
 
 def setup_model_and_tokenizer(model_id: str, load_in_4bit: bool = False,
                               adapter_path: Optional[Union[str, List[str]]] = None,
-                              device_map="auto"):
+                              device_map="auto", dtype: str = "bfloat16"):
     """
     Loads a causal LM + tokenizer from the Hugging Face Hub.
 
-    load_in_4bit=False -> bf16 weights (the Kaggle default; 32GB across 2xT4 needs no quantization).
+    dtype: "bfloat16" | "float16" | "float32". NOTE T4 (Turing) has no native bf16; see docs plan section 0 #4.
+    load_in_4bit=False -> full-precision weights in `dtype`; True -> NF4 with `dtype` compute.
     adapter_path: a LoRA adapter dir, or a list of dirs that are all activated together
                   (e.g. [sft_adapter, grpo_adapter], matching the local GRPO-on-SFT setup).
     """
     import torch
+    torch_dtype = getattr(torch, dtype)
     from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
     if torch.cuda.is_available():
@@ -30,14 +32,14 @@ def setup_model_and_tokenizer(model_id: str, load_in_4bit: bool = False,
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=torch_dtype,
         )
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map=device_map,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch_dtype,
         quantization_config=quantization_config,
         trust_remote_code=True,
     )
