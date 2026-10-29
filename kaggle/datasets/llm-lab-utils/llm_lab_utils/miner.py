@@ -3,7 +3,7 @@ import random
 from pathlib import Path
 from typing import Any, Dict
 
-from .evaluator import extract_code, generate_completion
+from .evaluator import extract_code, generate_completions
 
 CATEGORIES = ("solved", "borderline", "hard", "impossible")
 
@@ -52,11 +52,10 @@ def mine_tasks(model, tokenizer, tasks, verifier, n_samples: int, gen_cfg: Dict[
 
     for task_obj in iterator:
         task_dict = task_obj.model_dump()
-        c_correct = 0
-        for _ in range(n_samples):
-            completion, _, _ = generate_completion(model, tokenizer, task_dict, gen_cfg)
-            if verifier.verify(task_dict, extract_code(completion))["passed"]:
-                c_correct += 1
+        completions, _, _ = generate_completions(model, tokenizer, task_dict, gen_cfg, n=n_samples)
+        c_correct = sum(
+            bool(verifier.verify(task_dict, extract_code(c))["passed"]) for c in completions
+        )
 
         category = classify_task(c_correct, n_samples)
         task_dict["mining_metadata"] = {

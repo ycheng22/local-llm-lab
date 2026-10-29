@@ -92,7 +92,8 @@ for label, dtype_name in [("bf16", "bfloat16"), ("fp16", "float16"), ("bf16_repe
     model = tok = None
     try:
         model, tok = setup_model_and_tokenizer(PRIMARY_MODEL_ID, dtype=dtype_name, device_map={"": 0})
-        out.update(rollout_bench(model, tok))
+        if RUN_ROLLOUT:
+            out.update(rollout_bench(model, tok))
     except Exception as e:
         out["rollout_error"] = f"{type(e).__name__}: {e}"[:400]
     try:

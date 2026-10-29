@@ -54,7 +54,7 @@ def setup_cell(install_wheels: bool):
     return code(f"INSTALL_WHEELS = {install_wheels}\n" + SETUP_CELL)
 
 
-def write_kernel(folder, ipynb_name, kernel_id, title, cells, gpu, internet):
+def write_kernel(folder, ipynb_name, kernel_id, title, cells, gpu, internet, kernel_sources=None):
     """title must slugify to the id's last part, or Kaggle silently uses the title's slug."""
     for c in cells:
         if c["cell_type"] == "code":
@@ -69,7 +69,7 @@ def write_kernel(folder, ipynb_name, kernel_id, title, cells, gpu, internet):
     meta = {"id": kernel_id, "title": title, "code_file": ipynb_name, "language": "python",
             "kernel_type": "notebook", "is_private": True, "enable_gpu": gpu, "enable_tpu": False,
             "enable_internet": internet, "dataset_sources": DATASETS, "competition_sources": [],
-            "kernel_sources": [], "model_sources": []}
+            "kernel_sources": kernel_sources or [], "model_sources": []}
     with open(os.path.join(folder, "kernel-metadata.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     print("written", folder)
