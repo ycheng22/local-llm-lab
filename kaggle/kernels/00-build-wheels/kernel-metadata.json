@@ -1,6 +1,6 @@
 {
-  "id": "ycheng22/00-build-wheels",
-  "title": "00 Build Wheels - Local LLM Lab",
+  "id": "ycheng22/00-build-wheels-local-llm-lab",
+  "title": "00 Build Wheels Local LLM Lab",
   "code_file": "00_build_wheels.ipynb",
   "language": "python",
   "kernel_type": "notebook",
