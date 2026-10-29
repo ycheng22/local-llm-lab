@@ -17,10 +17,14 @@
 | 3 | **vLLM 双卡分流 (3-5x)** | **取消。** 安装 vLLM 会变更 105 个包并把 torch 2.11 替换为 2.13 + CUDA 13，可能破坏环境。NB 06 改用 HF `generate`（可用双卡 `device_map` 或 policy/rollout 分卡），GRPO 耗时估计需重算 | 已决定 |
 | 4 | bf16 LoRA 无量化噪声 | **实测 (NB 01b)**：T4 上 rollout 吞吐 bf16 **28.7 tok/s** vs fp16 **73.1 tok/s**（bf16 两次完全复现，fp16 快 2.5x）。**结论：全项目用 fp16（已验证）**。**训练步 (2×512 tok, LoRA r=16, grad ckpt)：fp16 1.9 s vs bf16 6.4–6.8 s（3.5x）**，fp16 loss 有限无溢出，峰值显存 7.1 GB。注意 fp16 GradScaler 初期会跳步，NB 04 需对比 loss 曲线。2B 模型 fp16 仅 3.8 GB（NF4 1.8 GB），单卡 15 GB 绝对够用，**不需要量化** | 部分验证 |
 | 5 | GRPO 6-8 hr、总计 18-24 GPU hr | 本地实测：SFT 5K = 3.04 GPU hr；GRPO ≈ 54 s/step、3250 步 ≈ 45 hr。Kaggle 预算见 §0.1；**GRPO 先做 20 步冒烟标定 s/step，再决定总步数** | 见 §0.1 |
-| 9 | MBPP 复杂题可用于评测 | **NB 02 审计发现**：(a) 420 题中仅 14 题的 prompt 含测试所需函数名，模型无法知道要定义 `get_ludic` 等 → Phase 4 的 "420/420 impossible" 很可能是 prompt 设计缺陷而非 2B 能力上限，后续 Phase 5/6 的 10%/20%/30% 数字同样存疑；(b) 14/420 题的 reference solution 自身通不过（truthy assert、缺 import、超时）。**修复**：新文件 `train_complex_v2.jsonl`（prompt 附 1 条示例测试，剔除 14 题，406 题），旧文件保持不变 | 已生成，待 NB 03 对比验证 |
+| 9 | MBPP 复杂题可用于评测 | **NB 02 审计发现**：(a) 420 题中仅 14 题的 prompt 含测试所需函数名，模型无法知道要定义 `get_ludic` 等 → Phase 4 的 "420/420 impossible" 很可能是 prompt 设计缺陷而非 2B 能力上限，后续 Phase 5/6 的 10%/20%/30% 数字同样存疑；(b) 14/420 题的 reference solution 自身通不过（truthy assert、缺 import、超时）。**修复**：新文件 `train_complex_v2.jsonl`（prompt 附 1 条示例测试，剔除 14 题，406 题），旧文件保持不变。**NB 03 实测验证**：同 100 题、同模型 (Qwen3.5-2B fp16)，v1 prompt Pass@1 **2.9%** / Pass@8 7% → v2 prompt Pass@1 **40.6%** / Pass@4 61.4% / Pass@8 69%；v1 下 84.3% 的样本报 "name not defined"，v2 降至 9.5%。**结论成立：Phase 4 的 "100% impossible" 是 prompt 缺陷，不是能力上限** | 已验证 |
 | 10 | 合成数据集有区分度 | 仅 4 个 prompt 模板；train/dev/test ID 互相重叠（ID 不可作 join key）；约一半 test 题与 train 题 prompt+visible test 完全相同 → Baseline/SFT/GRPO 全部 100% 是饱和而非能力证据。冻结 test 集不改动，仅在文档中披露 | 已记录 |
 | 11 | Kaggle 仅 13 GB RAM | 实测 33.7 GB RAM、2×T4 各 15.6 GB、Python 3.13、torch 2.11+cu128 | 已实测 |
 | 12 | Kaggle 镜像可直接装 peft | 镜像自带 torchao 0.10，peft 0.20 拒绝导入 → setup cell 中 `pip uninstall torchao` | 已修复 |
+| 13 | **实验重设计（NB 03 之后）**：合成集已饱和 (base 99.6%)，在 `train_5k` 上做 SFT/GRPO 无提升空间 | 以 MBPP v2 为主线：确定性切分 `mbpp_v2_train` 256 / `mbpp_v2_dev` 50 / `mbpp_v2_eval` 100（eval = NB 03 已评测的同 100 题，base Pass@1/4/8 = 40.6/61.4/69.0）。SFT 改为训练 256 题参考解（lr 1e-4, 3 epoch，约 0.2–0.3 hr）；原合成集 SFT 保留为可选 `04z`。所有对比使用同 seed、同采样配置，并用 **配对 bootstrap 95% CI**（100 题下几个点可能只是噪声）。超参在看到 eval 结果前固定。**与本地 Phase 2/3 数字不可直接对比，属有意的重设计** | 进行中 |
+| 14 | `kagglehub.model_upload` 传递 checkpoint | 改用 `kernel_sources` 直接挂载上游 Notebook 的 Output（零成本、无需凭证）；Private Models 仅作后续归档 | 已采用 |
+| 15 | SFT 能提升 MBPP | **NB 05 实测（同 100 题、同 seed、配对 bootstrap）**：SFT(256 题参考解, lr 1e-4, 3 epoch) Pass@1 39.0% vs base 40.6%（差 −1.6 pt，95% CI [−8.9, +6.0]，P(sft 更好)=0.32）；Pass@4 −3.8 pt、Pass@8 −4.0 pt，CI 均跨 0 → **无可检测的提升**（也无可检测的下降）。副作用：syntax error 率 5.5% → 1.1%，输出更短（MBPP 平均 ~94 vs ~191 tokens/样本，即风格更简洁）；合成集 99.6% → 98.8%。**100 题的 CI 约 ±7 pt，小于 7 pt 的效应测不出**。这是一个干净的负结果，超参未在 eval 上调过，不再重调 | 已验证 |
+| 16 | 评测成本 ~0.65 hr | NB 05 实际 **1.35 hr**：未合并的 LoRA 使 tokens/s 慢约 2.4x（MBPP 91→37，合成 61→28）。**之后所有评测用 `setup_model_and_tokenizer(..., merge=True)`**（合并后与 base 同速）。evaluator 现在记录 `truncated_rate`（撞到 max_new_tokens 的样本比例）与精确 token 数/`gen_tokens_per_s`；NB 05 合成集 token 数是 base 的 3x 而字符数相近，原因未明，下次评测用上述新指标核查 | 已修复 / 待复核 |
 | 6 | `kernel-metadata.json` 的 title 任意 | title 必须能 slugify 为 id，否则 Kaggle 使用 title 的 slug（例：id `00-build-wheels` + title `... Local LLM Lab` 得到 `00-build-wheels-local-llm-lab`） | 已踩坑 |
 | 7 | 本地 PATH 有 `kaggle` | CLI 装在仓库 `.venv`；脚本通过 `kaggle/scripts/_env.ps1` 自动加入 PATH | 已实现 |
 | 8 | Wheels 设为 Public | 仅 45 MB，保持 Private（占用可忽略） | 已决定 |
@@ -38,9 +42,9 @@
 |:--|:---|:---:|:---|
 | 01 / 01b | 环境 + dtype 基准 | 0.2 + 0.2 | 已实测 (147 s + 600 s) |
 | 02 | 数据审计 (CPU) | 0 | 已实测 |
-| 03 | Baseline：合成 100 + MBPP v1/v2 各 100 题 × n=8 | ~1.0 | 批量采样，需标定 |
-| 04 | SFT 5K，1 epoch，fp16 LoRA | ~2.5 | 本地 3.04 hr (NF4)；需标定 |
-| 05 | SFT 评测 | ~0.7 | 批量采样 |
+| 03 | Baseline：合成 100 + MBPP v1/v2 各 100 题 × n=8 | **1.06（实测）** | 吞吐 ~90 tok/s |
+| 04 | SFT：MBPP 256 题 × 3 epoch，fp16 LoRA（可选 04z：合成 5K，~2.5） | ~0.3 | 步数少；BudgetGuard 保护 |
+| 05 | SFT 评测（MBPP eval 100×8 + 合成 test） | ~0.65 | NB 03 实测：MBPP 0.47 hr、合成 0.11 hr |
 | 06 | GRPO，**上限 1000 步**（非 3250） | ~8–10 | 本地 54 s/步 → 先 20 步冒烟标定 |
 | 07 | GRPO 评测 | ~0.7 | |
 | 08 | Mining，MBPP v2 406 题 × n=4 | ~0.7 | |

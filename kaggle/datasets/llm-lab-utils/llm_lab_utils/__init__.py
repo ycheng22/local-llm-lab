@@ -15,12 +15,12 @@ SECONDARY_MODEL_ID = "Qwen/Qwen3.5-4B"
 from .schema import TaskSchema, TestCase
 from .loader import load_dataset, save_dataset
 from .subprocess_verifier import SubprocessVerifier, Verifier
-from .metrics import pass_at_k, aggregate_pass_at_k
+from .metrics import pass_at_k, aggregate_pass_at_k, paired_bootstrap_diff
 from .experiment_tracker import ExperimentTracker
 
 __all__ = [
     "PRIMARY_MODEL_ID", "SECONDARY_MODEL_ID",
     "TaskSchema", "TestCase", "load_dataset", "save_dataset",
     "SubprocessVerifier", "Verifier",
-    "pass_at_k", "aggregate_pass_at_k", "ExperimentTracker",
+    "pass_at_k", "aggregate_pass_at_k", "paired_bootstrap_diff", "ExperimentTracker",
 ]

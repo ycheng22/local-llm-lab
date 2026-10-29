@@ -1,0 +1,21 @@
+{
+  "id": "ycheng22/06s-grpo-smoke",
+  "title": "06s GRPO Smoke",
+  "code_file": "06s_grpo_smoke.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/04-sft-training"
+  ],
+  "model_sources": []
+}

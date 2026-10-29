@@ -11,7 +11,7 @@ def load_config(config_path: str) -> dict:
 
 def setup_model_and_tokenizer(model_id: str, load_in_4bit: bool = False,
                               adapter_path: Optional[Union[str, List[str]]] = None,
-                              device_map="auto", dtype: str = "bfloat16"):
+                              device_map="auto", dtype: str = "bfloat16", merge: bool = False):
     """
     Loads a causal LM + tokenizer from the Hugging Face Hub.
 
@@ -47,7 +47,13 @@ def setup_model_and_tokenizer(model_id: str, load_in_4bit: bool = False,
     if adapter_path:
         from peft import PeftModel
 
-        if isinstance(adapter_path, (list, tuple)):
+        paths = list(adapter_path) if isinstance(adapter_path, (list, tuple)) else [adapter_path]
+        if merge:
+            # Fold each LoRA into the weights: no per-step adapter overhead (NB 05 measured ~2.4x slower
+            # tokens/s with the adapter left unmerged).
+            for p in paths:
+                model = PeftModel.from_pretrained(model, p).merge_and_unload()
+        elif isinstance(adapter_path, (list, tuple)):
             for i, p in enumerate(adapter_path):
                 if i == 0:
                     model = PeftModel.from_pretrained(model, p, adapter_name=f"adapter_{i}")

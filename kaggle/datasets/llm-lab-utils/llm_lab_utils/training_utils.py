@@ -41,10 +41,12 @@ class ProgressLoggingCallback(_Base):
             done = 1 if s == 1 else self.log_interval
             sps = done / max(now - self.last, 1e-9)
             eta_min = max(0, state.max_steps - s) / sps / 60 if sps else 0
-            loss = next((e["loss"] for e in reversed(state.log_history) if "loss" in e), float("nan"))
+            last = next((e for e in reversed(state.log_history) if "loss" in e or "reward" in e), {})
+            loss = last.get("loss", float("nan"))
+            reward = f" | reward {last['reward']:.3f}" if "reward" in last else ""
             peak = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0.0
             print(f"[Progress: Step {s}/{state.max_steps} ({100 * s / max(state.max_steps, 1):.1f}%) | "
-                  f"ETA {eta_min:.1f}m | loss {loss:.4f} | {sps:.3f} steps/s | peak VRAM {peak:.2f}GB]", flush=True)
+                  f"ETA {eta_min:.1f}m | loss {loss:.4f}{reward} | {sps:.3f} steps/s | peak VRAM {peak:.2f}GB]", flush=True)
             self.last = now
 
 

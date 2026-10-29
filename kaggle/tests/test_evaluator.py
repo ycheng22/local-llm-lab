@@ -47,7 +47,7 @@ def test_generate_completions_batches_in_one_call():
     FakeModel.calls = 0
     comps, n_tok, _ = generate_completions(FakeModel(), FakeTok(), task(0).model_dump(), {}, n=4)
     assert len(comps) == 4 and FakeModel.calls == 1
-    assert n_tok == 2 + 3 + 2 + 3  # non-EOS new tokens
+    assert n_tok == 3 + 4 + 3 + 4  # tokens up to and including first EOS
 
 
 def test_run_evaluation_pass_at_k_and_chunking(tmp_path):
@@ -84,3 +84,17 @@ def test_format_sft_example_and_budget_guard():
     g.t0 -= 100  # pretend 20 steps took 100 s -> 5 s/step -> 1.4 h projected
     ctl = Ctl(); g.on_step_end(None, St(), ctl)
     assert ctl.should_training_stop and g.stopped_by_budget
+
+
+def test_grpo_reward_fn_and_format():
+    from llm_lab_utils.grpo import make_reward_fn, format_grpo_example
+    from llm_lab_utils import SubprocessVerifier
+    fn = make_reward_fn(SubprocessVerifier())
+    kw = {"id": ["a", "b"], "version": [1, 1], "category": ["x", "x"], "difficulty": [0.1, 0.1],
+          "visible_tests": [[{"input": "f(2)", "expected": "4"}]] * 2,
+          "hidden_tests": [[{"input": "f(3)", "expected": "6"}]] * 2}
+    good = [{"role": "assistant", "content": "```python\ndef f(x): return 2*x\n```"}]
+    bad = "```python\ndef f(x): return 0\n```"
+    assert fn(["p", "p"], [good, bad], **kw) == [1.0, 0.0]
+    msgs = format_grpo_example({"prompt": "P", "starter_code": "S"})["prompt"]
+    assert msgs[1]["content"] == "P\n\nS" and msgs[0]["role"] == "system"

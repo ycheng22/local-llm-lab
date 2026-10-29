@@ -87,7 +87,7 @@ print(f"OOD Pass@1 (MBPP, v1 prompt):        {RUNS['exp00_baseline_mbpp_v1']['pa
 """),
     md("""
 ## Why do they differ? Failure analysis
-If the v1 prompt hides the required function name, failures should be dominated by `NameError` (the test calls a function the model never defined). We count error types over all failed samples.
+If the v1 prompt hides the required function name, failures should be dominated by "name ... is not defined" (the test calls a function the model never defined). We count error types over all failed samples.
 """),
     code("""
 import re, collections
@@ -99,7 +99,7 @@ def failure_profile(exp_id):
         if v["passed"]: c["passed"] += 1
         elif v["timeout"]: c["timeout"] += 1
         elif v["syntax_error"]: c["syntax_error"] += 1
-        elif "NameError" in v["stderr"]: c["NameError (function/name not defined)"] += 1
+        elif "is not defined" in v["stderr"]: c["name not defined"] += 1
         elif "failed: expected" in v["stderr"]: c["wrong answer"] += 1
         else: c["other runtime error"] += 1
     return {k: round(n / total, 3) for k, n in c.most_common()}

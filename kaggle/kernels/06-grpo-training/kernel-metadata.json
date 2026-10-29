@@ -1,0 +1,21 @@
+{
+  "id": "ycheng22/06-grpo-training",
+  "title": "06 GRPO Training",
+  "code_file": "06_grpo_training.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/04-sft-training"
+  ],
+  "model_sources": []
+}

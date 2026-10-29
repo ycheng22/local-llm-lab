@@ -93,3 +93,13 @@ def test_agent_workspace_roundtrip(dummy_task):
         assert ok, msg
     finally:
         ws.cleanup()
+
+
+def test_paired_bootstrap_diff():
+    from llm_lab_utils import paired_bootstrap_diff
+    a = {f"t{i}": 0 for i in range(50)}
+    b = {f"t{i}": 8 for i in range(50)}          # b strictly better on every task
+    r = paired_bootstrap_diff(a, b, n=8, k=1)
+    assert r["diff"] == 1.0 and r["ci95_low"] > 0.99 and r["p_better"] == 1.0
+    same = paired_bootstrap_diff(a, a, n=8, k=1)
+    assert same["diff"] == 0.0 and same["p_better"] == 0.0

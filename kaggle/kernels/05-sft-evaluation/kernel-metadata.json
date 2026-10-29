@@ -1,0 +1,22 @@
+{
+  "id": "ycheng22/05-sft-evaluation",
+  "title": "05 SFT Evaluation",
+  "code_file": "05_sft_evaluation.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/04-sft-training",
+    "ycheng22/03-baseline-evaluation"
+  ],
+  "model_sources": []
+}

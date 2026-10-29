@@ -50,8 +50,11 @@ def code(s):
             "source": s.strip("\n").splitlines(True)}
 
 
-def setup_cell(install_wheels: bool):
-    return code(f"INSTALL_WHEELS = {install_wheels}\n" + SETUP_CELL)
+def setup_cell(install_wheels: bool, single_gpu: bool = False):
+    """single_gpu=True hides GPU 1 BEFORE torch loads: HF Trainer otherwise wraps the model in DataParallel
+    and crashes on a model pinned to cuda:0 (seen in NB 04)."""
+    pre = 'import os\nos.environ["CUDA_VISIBLE_DEVICES"] = "0"\n' if single_gpu else ""
+    return code(pre + f"INSTALL_WHEELS = {install_wheels}\n" + SETUP_CELL)
 
 
 def write_kernel(folder, ipynb_name, kernel_id, title, cells, gpu, internet, kernel_sources=None):

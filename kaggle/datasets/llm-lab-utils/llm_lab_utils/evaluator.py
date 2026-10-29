@@ -25,7 +25,8 @@ def build_messages(task_dict: Dict[str, Any]) -> List[Dict[str, str]]:
     ]
 
 
-def generate_completions(model, tokenizer, task_dict: Dict[str, Any], gen_cfg: Dict[str, Any], n: int = 1):
+def generate_completions(model, tokenizer, task_dict: Dict[str, Any], gen_cfg: Dict[str, Any], n: int = 1,
+                         stats: Dict[str, int] = None):
     """
     Samples n completions for one task in a SINGLE generate() call (num_return_sequences=n),
     which is several times cheaper per sample than n separate calls.
@@ -54,7 +55,20 @@ def generate_completions(model, tokenizer, task_dict: Dict[str, Any], gen_cfg: D
 
     new = outputs[:, prompt_len:]
     completions = [tokenizer.decode(row, skip_special_tokens=True) for row in new]
-    n_tokens = int((new != tokenizer.eos_token_id).sum())
+    # Exact token count: each row counts up to and including its first EOS; rows with no EOS ran to the limit.
+    eos_cfg = getattr(getattr(model, "generation_config", None), "eos_token_id", None)
+    eos_ids = set(eos_cfg) if isinstance(eos_cfg, (list, tuple)) else ({eos_cfg} if eos_cfg is not None else set())
+    eos_ids.add(tokenizer.eos_token_id)
+    n_tokens = truncated = 0
+    for row in new.tolist():
+        cut = next((i for i, t in enumerate(row) if t in eos_ids), None)
+        if cut is None:
+            n_tokens += len(row)
+            truncated += 1
+        else:
+            n_tokens += cut + 1
+    if stats is not None:
+        stats["truncated"] = stats.get("truncated", 0) + truncated
     return completions, n_tokens, latency
 
 
@@ -88,6 +102,7 @@ def run_evaluation(model, tokenizer, tasks, verifier, gen_cfg, k_values, tracker
     task_results = []
     total_latency = 0.0
     timeout_count = syntax_count = total_generations = total_tokens = 0
+    gen_stats = {}
     peak_ram = 0.0
 
     for task_obj in iterator:
@@ -98,7 +113,8 @@ def run_evaluation(model, tokenizer, tasks, verifier, gen_cfg, k_values, tracker
         while remaining > 0:
             n = min(sample_chunk, remaining)
             remaining -= n
-            completions, n_tokens, latency = generate_completions(model, tokenizer, task_dict, gen_cfg, n=n)
+            completions, n_tokens, latency = generate_completions(model, tokenizer, task_dict, gen_cfg, n=n,
+                                                                  stats=gen_stats)
             total_latency += latency
             total_tokens += n_tokens
 
@@ -137,6 +153,8 @@ def run_evaluation(model, tokenizer, tasks, verifier, gen_cfg, k_values, tracker
     metrics["syntax_error_rate"] = syntax_count / denom
     metrics["mean_latency"] = total_latency / denom   # seconds per sample, amortized over the batch
     metrics["tokens_generated"] = total_tokens
+    metrics["truncated_rate"] = gen_stats.get("truncated", 0) / denom      # samples that hit max_new_tokens without EOS
+    metrics["gen_tokens_per_s"] = total_tokens / total_latency if total_latency else 0.0
 
     if tracker is not None:
         tracker.update_metrics(metrics)

@@ -38,3 +38,22 @@ def aggregate_pass_at_k(task_results: List[Dict], k_values: List[int]) -> Dict[s
         metrics[f"pass_at_{k}"] = total / count if count > 0 else 0.0
         
     return metrics
+
+
+def paired_bootstrap_diff(counts_a: Dict[str, int], counts_b: Dict[str, int], n: int, k: int = 1,
+                          iters: int = 10000, seed: int = 0) -> Dict[str, float]:
+    """
+    Paired bootstrap over tasks for the difference in Pass@k (b minus a).
+    counts_*: {task_id: c_correct_out_of_n}. Only task ids present in both are used.
+    Returns mean difference, 95% CI, and P(diff > 0). With ~100 tasks a few points of difference is often noise.
+    """
+    import random
+    ids = sorted(set(counts_a) & set(counts_b))
+    da = [pass_at_k(n, counts_a[i], k) for i in ids]
+    db = [pass_at_k(n, counts_b[i], k) for i in ids]
+    diffs = [y - x for x, y in zip(da, db)]
+    rng = random.Random(seed)
+    means = sorted(sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(iters))
+    return {"tasks": len(ids), "mean_a": sum(da) / len(da), "mean_b": sum(db) / len(db),
+            "diff": sum(diffs) / len(diffs), "ci95_low": means[int(0.025 * iters)],
+            "ci95_high": means[int(0.975 * iters)], "p_better": sum(m > 0 for m in means) / iters}
