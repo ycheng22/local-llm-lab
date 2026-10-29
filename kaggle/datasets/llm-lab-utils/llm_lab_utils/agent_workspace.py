@@ -6,7 +6,7 @@ import subprocess
 import time
 from typing import Dict, Any, Tuple
 
-from .subprocess_verifier import _limit_resources
+from .subprocess_verifier import limit_prelude
 
 class AgentWorkspace:
     """
@@ -33,7 +33,8 @@ class AgentWorkspace:
         """Builds a test script that imports main.py and runs all tests."""
         test_path = os.path.join(self.workspace_dir, "test_runner.py")
         
-        script = "import sys\n"
+        script = limit_prelude(self.max_memory_mb * 1024 * 1024, int(self.timeout) + 1)
+        script += "import sys\n"
         script += "try:\n"
         script += "    from main import *\n"
         script += "except Exception as e:\n"
@@ -94,7 +95,6 @@ class AgentWorkspace:
                 timeout=self.timeout,
                 cwd=self.workspace_dir,
                 env={"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": "0"},
-                preexec_fn=_limit_resources(self.max_memory_mb * 1024 * 1024, int(self.timeout) + 1),
             )
 
             stdout = process.stdout

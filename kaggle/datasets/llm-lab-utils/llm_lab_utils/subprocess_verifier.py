@@ -52,19 +52,20 @@ def build_test_script(task_dict: Dict[str, Any], candidate_code: str) -> str:
     return script
 
 
-def _limit_resources(max_memory_bytes: int, cpu_seconds: int):
-    """Returns a preexec_fn applying POSIX rlimits (None on platforms without `resource`)."""
-    try:
-        import resource
-    except ImportError:  # Windows: no rlimits, the wall-clock timeout still applies
-        return None
-
-    def apply():
-        resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-        os.setsid()
-
-    return apply
+def limit_prelude(max_memory_bytes: int, cpu_seconds: int) -> str:
+    """
+    Source prepended to the child script: applies POSIX rlimits inside the child itself.
+    (Deliberately not subprocess' preexec_fn, which can deadlock when called from threads.)
+    On platforms without `resource` (Windows) it is a no-op and only the wall-clock timeout applies.
+    """
+    return (
+        "try:\n"
+        "    import resource as _r\n"
+        f"    _r.setrlimit(_r.RLIMIT_AS, ({max_memory_bytes}, {max_memory_bytes}))\n"
+        f"    _r.setrlimit(_r.RLIMIT_CPU, ({cpu_seconds}, {cpu_seconds}))\n"
+        "except Exception:\n"
+        "    pass\n"
+    )
 
 
 class SubprocessVerifier(Verifier):
@@ -99,7 +100,8 @@ class SubprocessVerifier(Verifier):
             "duration_seconds": 0.0,
         }
 
-        test_script = build_test_script(task, candidate_code)
+        test_script = limit_prelude(self.max_memory_mb * 1024 * 1024, int(self.timeout) + 1) + \
+            build_test_script(task, candidate_code)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             script_path = os.path.join(temp_dir, "candidate.py")
@@ -114,9 +116,6 @@ class SubprocessVerifier(Verifier):
                     timeout=self.timeout,
                     cwd=temp_dir,
                     env={"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": "0"},
-                    preexec_fn=_limit_resources(
-                        self.max_memory_mb * 1024 * 1024, int(self.timeout) + 1
-                    ),
                 )
 
                 result["stderr"] = process.stderr

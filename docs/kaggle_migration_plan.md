@@ -15,11 +15,42 @@
 | 1 | 目录为 `kaggle/llm_lab_utils/` | Kaggle 挂载 Dataset 根目录，包必须嵌套：`kaggle/datasets/<slug>/llm_lab_utils/`；`sys.path.insert(0, '/kaggle/input/llm-lab-utils')` | 已实现 |
 | 2 | 打包完整离线 wheel（含 vllm） | Kaggle 镜像（Python 3.13, torch 2.11, transformers 5.16.1, peft 0.20.0）已含大部分依赖。仅需 6 个包：trl, bitsandbytes, accelerate, datasets, psutil, tqdm（45 MB）。用 `pip --dry-run --report` 求差集，绝不下载 torch/nvidia/triton | 已完成 (`00-build-wheels`) |
 | 3 | **vLLM 双卡分流 (3-5x)** | **取消。** 安装 vLLM 会变更 105 个包并把 torch 2.11 替换为 2.13 + CUDA 13，可能破坏环境。NB 06 改用 HF `generate`（可用双卡 `device_map` 或 policy/rollout 分卡），GRPO 耗时估计需重算 | 已决定 |
-| 4 | bf16 LoRA 无量化噪声 | T4 (Turing) **无原生 bf16**，bf16 走模拟，可能很慢。**待 NB 01 实测 bf16 vs fp16 的速度/显存/输出质量后再定**；默认假设改为 fp16 compute | **待验证** |
-| 5 | GRPO 6-8 hr、总计 18-24 GPU hr | 依赖 #3 #4，**待 NB 01 实测每步耗时后重算**；在此之前不要启动 NB 06 | **待验证** |
+| 4 | bf16 LoRA 无量化噪声 | **实测 (NB 01b)**：T4 上 rollout 吞吐 bf16 **28.7 tok/s** vs fp16 **73.1 tok/s**（bf16 两次完全复现，fp16 快 2.5x）。**结论：全项目用 fp16**。训练步 fp16 溢出(NaN)检查待 01b 重跑确认。2B 模型 fp16 仅 3.8 GB（NF4 1.8 GB），单卡 15 GB 绝对够用，**不需要量化** | 部分验证 |
+| 5 | GRPO 6-8 hr、总计 18-24 GPU hr | 本地实测：SFT 5K = 3.04 GPU hr；GRPO ≈ 54 s/step、3250 步 ≈ 45 hr。Kaggle 预算见 §0.1；**GRPO 先做 20 步冒烟标定 s/step，再决定总步数** | 见 §0.1 |
+| 9 | MBPP 复杂题可用于评测 | **NB 02 审计发现**：(a) 420 题中仅 14 题的 prompt 含测试所需函数名，模型无法知道要定义 `get_ludic` 等 → Phase 4 的 "420/420 impossible" 很可能是 prompt 设计缺陷而非 2B 能力上限，后续 Phase 5/6 的 10%/20%/30% 数字同样存疑；(b) 14/420 题的 reference solution 自身通不过（truthy assert、缺 import、超时）。**修复**：新文件 `train_complex_v2.jsonl`（prompt 附 1 条示例测试，剔除 14 题，406 题），旧文件保持不变 | 已生成，待 NB 03 对比验证 |
+| 10 | 合成数据集有区分度 | 仅 4 个 prompt 模板；train/dev/test ID 互相重叠（ID 不可作 join key）；约一半 test 题与 train 题 prompt+visible test 完全相同 → Baseline/SFT/GRPO 全部 100% 是饱和而非能力证据。冻结 test 集不改动，仅在文档中披露 | 已记录 |
+| 11 | Kaggle 仅 13 GB RAM | 实测 33.7 GB RAM、2×T4 各 15.6 GB、Python 3.13、torch 2.11+cu128 | 已实测 |
+| 12 | Kaggle 镜像可直接装 peft | 镜像自带 torchao 0.10，peft 0.20 拒绝导入 → setup cell 中 `pip uninstall torchao` | 已修复 |
 | 6 | `kernel-metadata.json` 的 title 任意 | title 必须能 slugify 为 id，否则 Kaggle 使用 title 的 slug（例：id `00-build-wheels` + title `... Local LLM Lab` 得到 `00-build-wheels-local-llm-lab`） | 已踩坑 |
 | 7 | 本地 PATH 有 `kaggle` | CLI 装在仓库 `.venv`；脚本通过 `kaggle/scripts/_env.ps1` 自动加入 PATH | 已实现 |
 | 8 | Wheels 设为 Public | 仅 45 MB，保持 Private（占用可忽略） | 已决定 |
+
+### 0.1 修订后的 GPU 预算与扩展范围（硬约束：≤ 30 GPU hr/周；本项目目标 ≤ 24 hr，留 6 hr 缓冲）
+
+**省钱杠杆（均已被实测或有明确依据）**
+1. **fp16，不量化**：比 bf16 快 2.5x 的 rollout，且省去 NF4 反量化开销。
+2. **批量采样**：评测/挖掘用 `num_return_sequences=n` 一次生成 n 个样本，替代本地的逐个 `generate()` 循环（NB 01b 的 rollout 正是此方式）。
+3. **Pass@K 一次采样**：K=1,2,4,8,16 只采 16 个样本，用无偏估计器 `pass_at_k(n=16,c,k)` 一次算出，不再对每个 K 重跑（约 5x 省）。
+4. **单 Session 双卡并行**：T4×2 按 1 小时计费。同一 Session 内用 `CUDA_VISIBLE_DEVICES=0/1` 起两个进程（如两个 GRPO 消融），相当于 2 GPU-hr 的工作只扣 1 hr。（**需实测确认计费**：每次运行前后在 kaggle.com/settings 记录 GPU 用量。）
+5. **每次 push 都带 `-TimeoutSeconds`**，并先做 ≤0.2 hr 冒烟标定，再启动长任务；GRPO 每 100 步存 checkpoint，拆成 ≤9 hr 的多个 Session 续训。
+
+| NB | 内容 | 估计 GPU hr | 依据 |
+|:--|:---|:---:|:---|
+| 01 / 01b | 环境 + dtype 基准 | 0.2 + 0.2 | 已实测 (147 s + 600 s) |
+| 02 | 数据审计 (CPU) | 0 | 已实测 |
+| 03 | Baseline：合成 100 + MBPP v1/v2 各 100 题 × n=8 | ~1.0 | 批量采样，需标定 |
+| 04 | SFT 5K，1 epoch，fp16 LoRA | ~2.5 | 本地 3.04 hr (NF4)；需标定 |
+| 05 | SFT 评测 | ~0.7 | 批量采样 |
+| 06 | GRPO，**上限 1000 步**（非 3250） | ~8–10 | 本地 54 s/步 → 先 20 步冒烟标定 |
+| 07 | GRPO 评测 | ~0.7 | |
+| 08 | Mining，MBPP v2 406 题 × n=4 | ~0.7 | |
+| 09 | Test-time scaling，100 题 × n=16 一次采样 | ~0.6 | 原 5 次独立运行 → 1 次 |
+| 10 / 11 | Agent 2B / 4B（4B fp16 ≈ 8 GB，单卡可放） | 0.5 + 0.7 | |
+| **核心合计** | | **≈ 16–19** | 落在 1 周 30 hr 内 |
+| 12 | Dashboard (CPU) | 0 | |
+| **扩展（可选）** | GRPO 消融 hard / mixed / random，每个 300 步，双卡并行 | ≈ 4–6 | 配置已存在 (`configs/grpo_ablation_*.yaml`) |
+
+**说明**：以上除已实测项外均为**估计**，每个 NB 首次运行后用实测值覆盖此表（写入 `summary.json` 的 `gpu_hours`）。核心 + 扩展 ≈ 20–25 hr，跨 2 周执行即可，不超配额。
 
 ---
 
