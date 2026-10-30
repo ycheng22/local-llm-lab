@@ -19,6 +19,8 @@
 
 ## Progress & Metrics
 
+> **Erratum (found during the Kaggle migration, see [Kaggle Migration](#kaggle-migration-phases-0-3-re-run-on-free-t4x2-with-corrections)):** the local MBPP experiments in Phases 4-6 used a prompt that did not tell the model the name of the function the tests call (only 14 of 420 prompts mentioned it). The "420/420 impossible" mining result and the Best-of-16 / agent numbers below therefore partly measure prompt format, not model capability. With the corrected prompt the same base model scores 40.6% Pass@1 instead of 2.9%. The synthetic benchmark used in Phases 1-3 is also saturated (4 prompt templates, base model 99.6%). Phase 4-6 numbers below are kept as the historical record and are being re-measured.
+
 ### Phase 0: Project Scaffolding + Environment + Model Loading
 **Status:** Completed
 
@@ -166,3 +168,52 @@
    - The un-fine-tuned `Qwen3.5-4B` base model achieved a **30.0% Completion Rate** and **26.3% Recovery Rate**, easily outperforming the fine-tuned 2B SFT model.
    - The 4B model demonstrated significantly stronger semantic error comprehension (e.g., recognizing function name mismatches and algorithm boundary conditions) and faster convergence (4.83 avg steps).
    - Peak VRAM for 4B in 4-bit was ~3.5 GB, confirming that 4B parameter models can run full autonomous coding loops on consumer 8GB GPUs.
+
+## Kaggle Migration (Phases 0-3 re-run on free T4x2, with corrections)
+
+**Status:** In progress. Notebooks 00-05 and the GRPO smoke test are done; the full GRPO run (06) is in progress; notebooks 07-09 are written but not yet run. Plan and the full change log: [docs/kaggle_migration_plan.md](docs/kaggle_migration_plan.md) (section 0).
+
+**Tasks Finished (Based on the Migration Plan):**
+- Shared library `kaggle/datasets/llm-lab-utils/llm_lab_utils/` (schema, loader, `SubprocessVerifier`, batched evaluator, miner, GRPO/SFT helpers, paired-bootstrap metrics), 19 unit tests in `kaggle/tests/`. Docker-free: Kaggle's ephemeral, internet-off container plus rlimits and timeouts replaces Docker.
+- Three Kaggle datasets (`llm-lab-utils`, `llm-lab-data` with a SHA-256 manifest, `llm-lab-wheels`) and push/pull scripts in `kaggle/scripts/`.
+- NB 00 offline wheels, NB 01/01b hardware + dtype benchmarks, NB 02 dataset audit (CPU), NB 03 baseline, NB 04 SFT, NB 05 SFT evaluation, NB 06s GRPO smoke test.
+- Notebook generators live in `kaggle/tools/` so every notebook is reproducible from code.
+
+**Environment (measured):** 2x Tesla T4 (15.6 GB each), 33.7 GB RAM, Python 3.13, torch 2.11+cu128. A T4x2 session is billed once by wall-clock time, regardless of how many GPUs are used.
+
+### Key findings
+1. **dtype: fp16, not bf16 (NB 01b).** T4 has no native bf16. Rollout throughput 72.5 vs 30.0 tok/s and a LoRA training step 1.9 s vs 6.4-6.8 s (3.5x). The 2B model needs only 3.8 GB in 16-bit, so no quantization is used.
+2. **The MBPP prompt was the bottleneck, not the model (NB 03).** Same 100 tasks, same model and sampling:
+
+| Prompt | Pass@1 | Pass@4 | Pass@8 | "name not defined" failures |
+| :--- | :--- | :--- | :--- | :--- |
+| v1 (original, no function name) | 2.9% | 6.0% | 7.0% | 84.3% |
+| v2 (adds one example test) | **40.6%** | 61.4% | 69.0% | 9.5% |
+
+3. **The synthetic benchmark is saturated (NB 02, 03).** 4 prompt templates; train/dev/test IDs overlap; about half of the distinct test items match a training item on prompt + visible test. Base model scores 99.6% Pass@1, so it cannot separate methods. 14 of 420 MBPP tasks also fail their own reference solution and were excluded from the v2 set (406 tasks, split 256 train / 50 dev / 100 eval, disjoint and deterministic).
+4. **SFT on 256 MBPP reference solutions gave no detectable gain (NB 04, 05).** Paired bootstrap on the 100 held-out tasks:
+
+| Metric | Base | SFT | Difference | 95% CI |
+| :--- | :--- | :--- | :--- | :--- |
+| Pass@1 | 40.6% | 39.0% | -1.6 pt | [-8.9, +6.0] |
+| Pass@4 | 61.4% | 57.6% | -3.8 pt | [-12.2, +5.0] |
+| Pass@8 | 69.0% | 65.0% | -4.0 pt | [-14.0, +6.0] |
+
+   SFT did change style: syntax errors 5.5% -> 1.1%, answers about half as long. With 100 eval tasks the CI is about +/-7 points, so smaller effects cannot be detected. Hyperparameters were fixed before any eval result and not retuned.
+5. **GRPO smoke test (NB 06s):** 25.7 s/step (from SFT) and 46.3 s/step (from base, wordier answers), peak VRAM 5.6-6.4 GB, train reward 0.25-0.35. Projected 200 steps with both arms in parallel: about 2.6 h wall, billed once. Risk noted: 50-100% of sampled groups had zero reward variance (no learning signal).
+6. **Cost lessons:** an unmerged LoRA adapter made evaluation about 2.4x slower (NB 05 cost 1.35 GPU h instead of ~0.65); adapters are now merged before evaluation. Per-device batch 8 ran out of memory in GRPO because Qwen3.5's 248k-token vocabulary makes the logits tensor huge; batch 2 with accumulation 8 keeps the same 16 completions per step.
+
+### GPU time used so far (Kaggle free tier: 30 h/week)
+| Notebook | GPU hours |
+| :--- | :--- |
+| 01 env + dtype benchmark / 01b (several runs) | ~0.5 total |
+| 03 baseline (synthetic + MBPP v1/v2, 100 tasks x 8 samples) | 1.06 |
+| 04 SFT (96 steps, 7.3 GB peak VRAM) | 0.16 |
+| 05 SFT evaluation | 1.35 |
+| 06s GRPO smoke (incl. one OOM run) | ~0.2 |
+| **Running total (estimate)** | **~3.3-4.5 of 30** |
+
+### Pending (to be filled in as notebooks complete)
+- **NB 06/07 GRPO training and evaluation:** both arms (from SFT, from base) vs base/SFT with paired CIs; peak VRAM, RAM, wall time, GPU hours.
+- **NB 08 hard-example mining** (re-run with the corrected prompt) and **NB 09 test-time scaling** (oracle Pass@k and a deployable visible-test selection from one batch of 16 samples).
+- Redo of the agent experiments (NB 10/11) with the corrected prompt, then the research dashboard (NB 12).

@@ -103,3 +103,14 @@ def test_paired_bootstrap_diff():
     assert r["diff"] == 1.0 and r["ci95_low"] > 0.99 and r["p_better"] == 1.0
     same = paired_bootstrap_diff(a, a, n=8, k=1)
     assert same["diff"] == 0.0 and same["p_better"] == 0.0
+
+
+def test_selection_accuracy():
+    from llm_lab_utils.metrics import selection_accuracy
+    # 1 of 4 passes visible and full; the other 3 fail both -> choosing by visible test is perfect when k covers it
+    s = [{"visible": True, "full": True}] + [{"visible": False, "full": False}] * 3
+    assert selection_accuracy(s, 4) == 1.0
+    assert abs(selection_accuracy(s, 1, draws=4000) - 0.25) < 0.03
+    # visible test passes but hidden fails (a "false friend") caps accuracy
+    f = [{"visible": True, "full": False}] * 4
+    assert selection_accuracy(f, 4) == 0.0

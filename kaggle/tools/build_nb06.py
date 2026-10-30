@@ -33,7 +33,7 @@ For each prompt, sample a *group* of G=4 completions, score each with the verifi
 | | Local (8 GB) | Here | Why |
 |---|---|---|---|
 | Weights | 4-bit NF4 | fp16 | NB 01b: 2.5-3.5x faster |
-| Prompts / step | 1 | **4** (per-device 8 x accum 2 = 16 completions) | batched generation is far cheaper per sample |
+| Prompts / step | 1 | **4** (per-device 2 x accum 8 = 16 completions; per-device 8 ran out of memory in the smoke test: the logits tensor is batch x length x 248k vocab) | batched generation is far cheaper per sample |
 | Generations per prompt | 4 | 4 | same |
 | Learning rate | 1e-5 (3250 steps) | **2e-5 ({steps} steps)** | far fewer steps |
 | Train tasks | `train_5k` synthetic | `mbpp_v2_train` (256 MBPP tasks) | synthetic set is saturated |
@@ -46,7 +46,7 @@ from llm_lab_utils import ExperimentTracker
 
 SFT_ADAPTER = glob.glob(f"{{find_input('04-sft-training')}}/**/exp01_sft_mbpp_v1/checkpoint-final", recursive=True)[0]
 EXP_ID, STEPS, ARM_MAX_HOURS, WALL_CAP_H = "{exp}", {steps}, {hours}, {hours + 0.5}
-GRPO = {{"lr": 2e-5, "per_device_batch": 8, "grad_accum": 2, "num_generations": 4, "max_completion_length": 384,
+GRPO = {{"lr": 2e-5, "per_device_batch": 2, "grad_accum": 8, "num_generations": 4, "max_completion_length": 384,
         "max_steps": STEPS, "logging_steps": 5, "save_steps": 50, "seed": 42}}
 ARMS = [("grpo_from_sft", "0", SFT_ADAPTER), ("grpo_from_base", "1", None)]
 os.makedirs(f"/kaggle/working/{{EXP_ID}}", exist_ok=True)
@@ -62,7 +62,7 @@ for arm, gpu, init in ARMS:
            "init_adapter": init, "train_file": f"{DATA}/mbpp_v2_train.jsonl", "grpo": GRPO,
            "max_hours": ARM_MAX_HOURS, "guard_step": 5}
     json.dump(cfg, open(f"{out}/run_config.json", "w"), indent=2)
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": gpu, "PYTHONPATH": "/tmp/_pkg", "TOKENIZERS_PARALLELISM": "false"}
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": gpu, "PYTHONPATH": "/tmp/_pkg", "TOKENIZERS_PARALLELISM": "false", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
     log = open(f"{out}/train.log", "w")
     procs[arm] = (subprocess.Popen([sys.executable, "-m", "llm_lab_utils.grpo", f"{out}/run_config.json"],
                                    stdout=log, stderr=subprocess.STDOUT, env=env), out)
@@ -101,7 +101,10 @@ for arm, (_, out) in procs.items():
 rows = []
 for arm, m in metas.items():
     h = [e for e in hist.get(arm, []) if "reward" in e]
-    rows.append({"arm": arm, "steps": m["optimizer_steps"], "gpu_hours": round(m["gpu_hours"], 3),
+    nan_steps = sum(1 for e in hist.get(arm, []) if "grad_norm" in e and e["grad_norm"] != e["grad_norm"])   # fp16 scaler skips
+    zero_std = [e["frac_reward_zero_std"] for e in h if "frac_reward_zero_std" in e]
+    rows.append({"arm": arm, "steps": m["optimizer_steps"], "nan_grad_logs": nan_steps,
+                 "mean_zero_std_frac": round(sum(zero_std) / len(zero_std), 3) if zero_std else None, "gpu_hours": round(m["gpu_hours"], 3),
                  "s_per_step": round(m["gpu_hours"] * 3600 / max(m["optimizer_steps"], 1), 1),
                  "peak_vram_gb": round(m["peak_vram_gb"], 2), "stopped_by_budget": m["stopped_by_budget"],
                  "reward_first": round(h[0]["reward"], 3) if h else None, "reward_last": round(h[-1]["reward"], 3) if h else None})

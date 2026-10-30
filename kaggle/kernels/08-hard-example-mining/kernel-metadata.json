@@ -1,0 +1,22 @@
+{
+  "id": "ycheng22/08-hard-example-mining",
+  "title": "08 Hard Example Mining",
+  "code_file": "08_hard_example_mining.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/04-sft-training",
+    "ycheng22/06-grpo-training"
+  ],
+  "model_sources": []
+}

@@ -1,0 +1,22 @@
+{
+  "id": "ycheng22/09-test-time-scaling",
+  "title": "09 Test Time Scaling",
+  "code_file": "09_test_time_scaling.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/04-sft-training",
+    "ycheng22/06-grpo-training"
+  ],
+  "model_sources": []
+}

@@ -57,3 +57,20 @@ def paired_bootstrap_diff(counts_a: Dict[str, int], counts_b: Dict[str, int], n:
     return {"tasks": len(ids), "mean_a": sum(da) / len(da), "mean_b": sum(db) / len(db),
             "diff": sum(diffs) / len(diffs), "ci95_low": means[int(0.025 * iters)],
             "ci95_high": means[int(0.975 * iters)], "p_better": sum(m > 0 for m in means) / iters}
+
+
+def selection_accuracy(samples: List[Dict], k: int, draws: int = 2000, seed: int = 0) -> float:
+    """
+    Realistic best-of-k: draw k of a task's samples at random, keep those that pass the example (visible) test
+    the model was shown, pick one of them at random (if none pass, pick any of the k), and score it on the full
+    tests. Unlike Pass@k this needs no oracle that sees the hidden tests.
+    samples: [{"visible": bool, "full": bool}, ...] for ONE task. Returns the expected accuracy over random draws.
+    """
+    import random
+    rng = random.Random(seed)
+    total = 0.0
+    for _ in range(draws):
+        pick = rng.sample(samples, k)
+        pool = [s for s in pick if s["visible"]] or pick
+        total += float(rng.choice(pool)["full"])
+    return total / draws
