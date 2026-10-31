@@ -171,12 +171,12 @@
 
 ## Kaggle Migration (Phases 0-3 re-run on free T4x2, with corrections)
 
-**Status:** In progress. Notebooks 00-05 and the GRPO smoke test are done; the full GRPO run (06) is in progress; notebooks 07-09 are written but not yet run. Plan and the full change log: [docs/kaggle_migration_plan.md](docs/kaggle_migration_plan.md) (section 0).
+**Status:** Complete through Phase 6.5 (all notebooks 00-11 and extension runs x02-x08s done, results below; Step 19j and the full 4B GRPO run intentionally not run, see Limitations in *Final Results*). Phase 7 dashboard: see *Final Results* at the end of this file. Plan and the full change log: [docs/kaggle_migration_plan.md](docs/kaggle_migration_plan.md) (section 0).
 
 **Tasks Finished (Based on the Migration Plan):**
-- Shared library `kaggle/datasets/llm-lab-utils/llm_lab_utils/` (schema, loader, `SubprocessVerifier`, batched evaluator, miner, GRPO/SFT helpers, paired-bootstrap metrics), 19 unit tests in `kaggle/tests/`. Docker-free: Kaggle's ephemeral, internet-off container plus rlimits and timeouts replaces Docker.
+- Shared library `kaggle/datasets/llm-lab-utils/llm_lab_utils/` (schema, loader, `SubprocessVerifier`, batched evaluator, miner, GRPO/SFT helpers, paired-bootstrap metrics), 23 unit tests in `kaggle/tests/`. Docker-free: Kaggle's ephemeral, internet-off container plus rlimits and timeouts replaces Docker.
 - Three Kaggle datasets (`llm-lab-utils`, `llm-lab-data` with a SHA-256 manifest, `llm-lab-wheels`) and push/pull scripts in `kaggle/scripts/`.
-- NB 00 offline wheels, NB 01/01b hardware + dtype benchmarks, NB 02 dataset audit (CPU), NB 03 baseline, NB 04 SFT, NB 05 SFT evaluation, NB 06s GRPO smoke test.
+- NB 00 offline wheels, NB 01/01b hardware + dtype benchmarks, NB 02 dataset audit (CPU), NB 03 baseline, NB 04 SFT, NB 05 SFT evaluation, NB 06s GRPO smoke test, NB 06/07 GRPO training and evaluation, NB 08 mining, NB 09/09b test-time scaling, NB 10/11 agents, x02-x08s extension experiments (items 12-22 below), `kaggle/tools/make_dashboard.py` (Final Results).
 - Notebook generators live in `kaggle/tools/` so every notebook is reproducible from code.
 
 **Environment (measured):** 2x Tesla T4 (15.6 GB each), 33.7 GB RAM, Python 3.13, torch 2.11+cu128. A T4x2 session is billed once by wall-clock time, regardless of how many GPUs are used.
@@ -326,6 +326,78 @@
    - **Revised "2B + RL vs 2x parameters" (73 common tasks, cap 768, n=4):** 4B base 68.5% vs 2B GRPO 58.2%, +10.3 pt [+2.4, +18.5], so **the 4B model is significantly better than the GRPO-trained 2B model once it is allowed to finish**. 4B vs 2B base is +27.1 pt [+17.8, +36.3]; GRPO closes about 17 of those 27 points. The earlier finding "2B GRPO matches 4B" (item 15) was an artefact of the cap.
    - **Limits:** the 4B arm only covers the first 73 tasks (the run was cut off during the 4B arm, because 4B at 768 tokens is slow: about 1900 characters per sample versus 680 for 2B), so the 4B comparison uses 73 tasks and n=4. No `summary.json` exists for the 4B arm and the summary cell never ran; the numbers above are computed from the saved `generations.jsonl` files. The 4B truncation rate at 768 was not computed. Slow 4B decoding at 768 tokens also raises the cost of any further 4B experiment (plan Step 19i).
 
+18. **Test-time scaling of the base model (09b, plan Step 19c; same protocol as NB 09, n=16, temperature 0.8; 0.62 GPU h):**
+
+| k samples | base: oracle | base: visible-test selection | GRPO: oracle | GRPO: visible-test selection |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | 37.4% | 37.5% | 55.4% | 55.5% |
+| 2 | 49.7% | 48.0% | 65.6% | 64.0% |
+| 4 | 59.7% | 55.8% | 72.0% | 68.7% |
+| 8 | 67.7% | 61.7% | 77.0% | 71.8% |
+| 16 | 75.0% | 66.6% | 81.0% | 73.7% |
+
+   - **RL and "sample more and select" are partly interchangeable.** The GRPO model at k=1 (55.5%) equals the base model with 4 samples and visible-test selection (55.8%): one GRPO sample is worth about four base samples, so RL moved roughly 4x inference compute into the weights.
+   - **They do not fully substitute.** At equal k, GRPO stays ahead in the deployable curve (k=16: 73.7% vs 66.6%, +7.1 pt) but the gap shrinks from +18 pt at k=1 to +7 pt at k=16. The oracle curves converge more (81.0% vs 75.0%).
+   - **False friends** (pass the visible example but fail hidden tests): base 14.8%, GRPO 10.0% - RL also made the visible example a more reliable filter.
+   - Base sampling at T=0.8 gives Pass@1 37.4% (vs 40.6% at T=0.7, NB 03): temperature costs the base model about 3 pt, so the k=1 point here is not the same operating point as the NB 03 table.
+
+19. **Robustness to renaming (x07, plan Step 19h; the function name is replaced by a neutral name such as `compute_result` in the prompt, example assert, all tests and the reference; 100 tasks, all references still pass; n=4, same sampling; renamed-set sha256 `5a3df107...`; 0.72 GPU h):**
+
+| | Original names (n=8) | Renamed (n=4) | Renamed - original (95% CI) |
+| :--- | :--- | :--- | :--- |
+| base Pass@1 | 40.6% | 42.0% | +1.4 pt [-6.0, +8.9] |
+| GRPO from base Pass@1 | 58.5% | 55.0% | -3.5 pt [-7.7, +0.5] |
+| GRPO - base | +17.9 pt [+12.4, +23.9] | **+13.0 pt [+7.2, +19.0]** | interaction -4.9 pt [-12.6, +3.1] |
+
+   - **The RL gain survives the rename: +13.0 pt, CI excludes zero.** The apparent shrinkage (-4.9 pt) is not statistically significant, so we cannot claim that part of the gain was memorised names, but a loss of up to about 3 to 4 pt cannot be ruled out either (GRPO alone drops 3.5 pt, CI just touching zero).
+   - `name 'x' is not defined` errors: base 7.3% (9.2% with the original names), GRPO 0.0% (0.6%). A neutral name does not make the base model's naming problem worse, so the base model's wrong names are not caused by informative function names.
+   - Together with x02 (no transfer to HumanEval) and the 19a failure analysis: the MBPP gain is real and not name-specific, but it is tied to MBPP-style prompts (example assert in the prompt, MBPP conventions), not to general coding ability. The "GRPO learned to match the example assert's output format" hypothesis (item 14) stays untested.
+
+20. **Mining ablation with GRPO (x06, plan Step 19g; `grpo_from_base` recipe of NB 06, seed 42, 200 steps, 97 training tasks per arm; evaluation as NB 07; session 3.37 GPU h):**
+
+| Arm (97 train tasks) | Pass@1 | Pass@4 | Pass@8 | Zero-variance groups in training | Train GPU h |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| base (reference) | 40.6% | 61.4% | 69.0% | - | - |
+| `learnable97` (base got 1-3 of 4) | 55.8% | 72.5% | 77.0% | **40.3%** | 2.38 |
+| `random97` | 58.5% | 73.7% | 77.0% | 61.3% | 2.18 |
+| full 256 tasks (NB 06/07) | 58.5% | 74.4% | 80.0% | 61% | 2.34 |
+
+| Comparison (95% CI) | Pass@1 | Pass@4 | Pass@8 |
+| :--- | :--- | :--- | :--- |
+| `learnable97` - base | +15.1 [+9.6, +20.9] | +11.1 [+4.4, +18.3] | +8.0 [+1.0, +16.0] |
+| `random97` - base | +17.9 [+11.1, +24.9] | +12.3 [+4.9, +20.1] | +8.0 [0.0, +17.0] |
+| `learnable97` - `random97` | -2.8 [-7.9, +2.1] | -1.2 [-5.1, +2.7] | 0.0 [-5.0, +5.0] |
+| `random97` - full 256 | 0.0 [-4.6, +4.9] | -0.7 [-5.7, +4.0] | -3.0 [-9.0, +3.0] |
+
+   - **The Phase 4 hypothesis is not supported: training only on the "learnable" tasks was not better than random tasks** (-2.8 pt Pass@1, CI includes 0; point estimates favour random on Pass@1 and Pass@4, tied on Pass@8). Mining did what it was designed to do for the signal (zero-variance groups 61% -> 40%), but a cleaner signal did not buy accuracy.
+   - **Training on 97 random tasks matched training on all 256** (58.5% vs 58.5% Pass@1, difference 0.0 [-4.6, +4.9]). So the RL gain on MBPP does not need many tasks; the first ~100 tasks carry essentially all of it. This also means the 256-task training set was not the limit, and raises the possibility that much of the gain is learning a format/behaviour that a handful of tasks teaches (consistent with x02 and the 19a analysis).
+   - Caveat: single seed per arm. The seed spread (x05) tells how large a difference of 2.8 pt has to be before it means anything; the CIs above are over tasks, not over training runs. Gain per training GPU hour: 0.063 (learnable97) vs 0.082 (random97) Pass@1 points per hour.
+   - Synthetic OOD Pass@1: 99.8% (learnable97) and 100.0% (random97): no regression.
+
+21. **4B GRPO calibration (x08s, plan Step 19i; 6 steps per configuration, `grpo_from_base` recipe with Qwen3.5-4B, completion cap 768; 0.32 GPU h) - NO-GO:**
+
+| Config (16 completions per step) | Fits a 16 GB T4 | s / step | Projected 200 steps | Peak VRAM | Mean reward (6 steps) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| per-device batch 1 x accum 16 | yes | 166.7 | **9.3 h** | 12.0 GB | 0.615 |
+| per-device batch 2 x accum 8 | yes | 159.8 | **8.9 h** | 13.7 GB | 0.573 |
+
+   - **4B GRPO fits in memory but not in the budget.** The pre-registered rule was "run only if the projected 200 steps take at most 5 GPU hours"; the best configuration projects 8.9 h (about 3.5x the 2B run), so the run was **not** launched. The cause is generation: 4B writes about 660 tokens per completion (the 768 cap is needed, see x04) and decodes at roughly half the 2B speed.
+   - Reward is not degenerate (0.57 to 0.62), so the recipe itself is sound for 4B; only compute is the limit. A shorter run (for example 100 steps, about 4.4 h) would be a different hyperparameter set and would not be comparable with the 2B run, so it was not substituted. The question "does the RL gain persist at 4B" stays open.
+
+22. **Seed variance of the GRPO gain (x05, plan Step 19f; `grpo_from_base` recipe of NB 06 with seeds 43 and 44 only changed; evaluation as NB 07; session 3.65 GPU h):**
+
+| Seed | Pass@1 | Pass@4 | Pass@8 | Gain over base, Pass@1 (95% CI) | Truncated | Zero-variance groups |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 42 (NB 06/07) | 58.5% | 74.4% | 80.0% | +17.9 [+12.4, +23.9] | 8.5% | 61% |
+| 43 | 51.9% | 70.3% | 75.0% | +11.3 [+5.5, +17.2] | 16.6% | 57.4% |
+| 44 | 55.8% | 70.8% | 73.0% | +15.1 [+9.4, +21.1] | 5.5% | 59.3% |
+| **mean +/- std (3 seeds)** | **55.4% +/- 3.3 pt** | 71.8% | 76.0% | **+14.8 pt**, range +11.3 to +17.9 | | |
+
+   - **The GRPO gain is real and stable in sign: all three seeds are significantly above base at Pass@1 and Pass@4.** The base-relative gain is **+14.8 pt on average (range +11.3 to +17.9)**.
+   - **Seed 42 was the luckiest of the three.** The +17.9 pt reported in NB 07 is the top of the range; the honest headline number is "about +15 pt, seed std 3.3 pt". Seed 42 vs seed 43 differs significantly (+6.6 pt [+2.9, +10.5]) at the level of a single training run on identical data and settings.
+   - **Pass@8 gains are not robust:** for seeds 43 and 44 the Pass@8 gain over base (+6.0 and +4.0 pt) has a CI that includes 0. RL mostly improves single-sample reliability, less the ceiling of what the model can ever solve.
+   - **Consequence for the other experiments:** single-run differences smaller than about 3 to 6 pt are within run-to-run noise. This includes the mining ablation (`learnable97` vs `random97`, -2.8 pt, item 20) and every "GRPO vs X" comparison with a single seed. Seed 43 also has a much higher truncation rate (16.6% vs 5.5 to 8.5%), so RL does not always shorten answers.
+
 ### GPU time used so far (Kaggle free tier: 30 h/week)
 | Notebook | GPU hours |
 | :--- | :--- |
@@ -343,8 +415,53 @@
 | x03 4B baseline | 1.45 |
 | 11 agent evaluation 4B | 0.71 |
 | x04 length cap (cut off at the 7200 s limit) | ~2.0 |
-| **Running total (estimate)** | **~15.1 of 30** (check Settings -> Quota) |
+| 09b test-time scaling, base | 0.62 |
+| x07 robustness (rename) | 0.72 |
+| x06 GRPO mining ablation (2 arms + eval) | 3.37 |
+| x05 GRPO seeds 43/44 (2 arms + eval) | 3.65 |
+| x08s 4B GRPO calibration | 0.32 |
+| **Total** | **~23.8 GPU hours over two quota weeks** (week 1: 13.1 through NB 11; week 2: 10.7 from x04 on; never above 15.1 in one week) |
 
-### Pending (to be filled in as notebooks complete)
-- GRPO mining ablation, extra seeds, HumanEval, 4B baseline, failure analysis (plan Phase 6.5, Steps 19a-19i).
-- Redo of the agent experiments (NB 10/11) with the corrected prompt, then the research dashboard (NB 12).
+## Final Results (Phase 6.5 and Phase 7: research dashboard)
+
+Generated by `python kaggle/tools/make_dashboard.py` from the pulled Kaggle outputs (0 GPU hours); files: `reports/final_results.csv`, `reports/final_results.md`, `reports/final_results.json`, figures in `reports/figures_final/` (`f1_pass_at_1_models`, `f2_roi`, `f3_test_time_scaling`, `f4_transfer`, `f5_token_cap`, `f6_agent`, `f7_mining`, `f8_seeds`). All numbers are on the frozen held-out set (100 `mbpp_v2_eval` tasks, 8 samples, temperature 0.7, top-p 0.9, 384 tokens, seed 1234) unless stated. "OOD Pass@1" is the Pass@1 on the first 100 synthetic test tasks (regression check), HumanEval is reported separately.
+
+| Model | Pass@1 | Pass@4 | Pass@8 | OOD Pass@1 | Peak VRAM GB | Peak RAM GB | Eval wall h | Train GPU h |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2B base | 40.6% | 61.4% | 69.0% | 99.6% | 3.9 | 2.6 | 0.47 | - |
+| 2B SFT | 39.0% | 57.6% | 65.0% | 98.8% | 3.9 | 2.6 | 0.57 | 0.16 |
+| 2B GRPO from SFT | 42.6% | 56.4% | 63.0% | 100.0% | 3.9 | 2.6 | 0.41 | - |
+| 2B GRPO seed 42 | 58.5% | 74.4% | 80.0% | 98.5% | 3.9 | 2.8 | 0.39 | 2.34 |
+| 2B GRPO seed 43 | 51.9% | 70.3% | 75.0% | 98.2% | 3.9 | 2.7 | 0.46 | 2.51 |
+| 2B GRPO seed 44 | 55.8% | 70.8% | 73.0% | 100.0% | 3.9 | 2.8 | 0.38 | 2.56 |
+| 2B GRPO 97 learnable tasks | 55.8% | 72.5% | 77.0% | 99.8% | 3.9 | 2.6 | 0.42 | 2.38 |
+| 2B GRPO 97 random tasks | 58.5% | 73.7% | 77.0% | 100.0% | 3.9 | 2.7 | 0.36 | 2.18 |
+| 4B base (384 cap; 768 cap gives about +15 pt, item 17) | 53.8% | 66.2% | 69.0% | 99.5% | 8.7 | 2.7 | 0.97 | - |
+
+GRPO from base over 3 seeds: **Pass@1 55.4% +/- 3.3 pt, gain over base +14.8 pt**. Training GPU hours are session times for two arms running in parallel; the "wall time" and "GPU hours" of every individual experiment are in `reports/final_results.csv` and in each experiment's `summary.json`.
+
+### Answers to the research questions
+1. **Does RL with unit-test rewards improve a 2B model on held-out MBPP?** Yes. About **+15 pt Pass@1** (range +11 to +18 over three seeds), significant on every seed at Pass@1 and Pass@4, with no loss on the synthetic regression set. The +17.9 pt first reported was the best of three seeds.
+2. **Does SFT help first?** No. SFT alone did not help (-1.6 pt) and GRPO starting from SFT was far worse (+2.0 pt) than GRPO from the base model (+17.9 pt, seed 42).
+3. **Is it better to train or to sample more at inference?** They overlap. One GRPO sample is worth about four base samples chosen with the visible test (item 18), but the GRPO model stays ahead at equal k. Training costs 2.3 GPU h once; sampling costs a multiple on every query.
+4. **Does bigger beat trained-smaller?** Doubling parameters gives about +27 pt Pass@1 over 2B base (73 tasks, 768 cap), GRPO about +15 to +18 pt. The 4B model is better; GRPO recovers more than half of the gap. 4B GRPO itself was not run (8.9 projected hours, over the 5 h rule).
+5. **Does hard-example mining help GRPO?** Not measurably. Mining cut wasted groups from 61% to 40% but accuracy was not better than for random tasks (-2.8 pt, within seed noise), and 97 random tasks matched all 256 tasks.
+6. **Does the gain generalise?** Partly. It survives renaming the function (+13 pt) but **does not transfer to HumanEval (+2.4 pt, CI [-0.8, +5.5])**. The honest claim is "the model got better at MBPP-style tasks", not "better at coding".
+7. **Do agents help?** Only at 4B (+23 pt over its single-shot on 39 tasks); at 2B the tool loop gave no significant gain.
+
+### Which method is worth its compute? (Pass@1 gain over 2B base per training GPU hour; `f2_roi`)
+GRPO from base: +14.8 pt / 2.5 h of training = about 6 pt per hour (seed range 4.5 to 7.7); SFT: negative; mining: no better than random. Inference-time options cost no training but multiply per-query cost (k=4 selection: +18 pt for 4x generation).
+
+### Limitations (read before quoting any number)
+- 100 evaluation tasks: a single comparison has a 95% CI of about +/-6 pt; differences below that are not claimed. Run-to-run (seed) std of a GRPO model is 3.3 pt, also larger than most ablation differences.
+- One model family (Qwen3.5), one training source (256 MBPP tasks), one benchmark family. HumanEval conversion covers 157 of 164 problems (the others are not expressible as plain asserts).
+- The 4B results are lower bounds under the 384 cap and, at 768, cover only 73 tasks (the run hit its time cap); the 4B agent run completed 39 of 60 tasks.
+- The "GRPO learned to match the example assert's format" hypothesis (item 14) was deliberately not tested (plan Step 19k dropped to save quota) and stays a hypothesis.
+- Step 19j (a second training source to test transfer to HumanEval) was not run: it needs a new decontaminated dataset and about 3.5 GPU h, and the seed variance (item 22) means one more single-run result would not settle the question. It is the first thing to do next.
+- All code execution happened inside Kaggle's isolated container with `SubprocessVerifier` limits; nothing generated was run on the Windows host (AGENTS.md rules 8 and 9).
+
+### Blog drafts
+Nine draft posts in `docs/blog/` (index: `docs/blog/README.md`) tell the story with the numbers above.
+
+### Reproduction
+`kaggle/scripts/sync_all.ps1` uploads the shared library and the frozen data; `kaggle/scripts/push_kernel.ps1 <kernel> -Accelerator NvidiaTeslaT4 -TimeoutSeconds N` runs a notebook; `python kaggle/tools/build_*.py` regenerate the notebooks; `kaggle/scripts/pull_results.ps1` and `kaggle kernels output` download results; `python kaggle/tools/analyze_failures.py` and `python kaggle/tools/make_dashboard.py` regenerate the CPU-side analyses. Unit tests: `python -m pytest kaggle/tests`. The data files are listed with their sha256 in `kaggle/datasets/llm-lab-data/MANIFEST.sha256`; the frozen test set was never modified.

@@ -1,0 +1,25 @@
+{
+ "source_report": "experiments/kaggle_outputs/08/exp03_mining_base/mining_report.json",
+ "mining_seed": 42,
+ "random_seed": 0,
+ "sizes": {
+  "mbpp_v2_train_learnable.jsonl": 97,
+  "mbpp_v2_train_random.jsonl": 97
+ },
+ "pass_count_histogram": {
+  "mbpp_v2_train_learnable.jsonl": {
+   "0": 0,
+   "1": 33,
+   "2": 34,
+   "3": 30,
+   "4": 0
+  },
+  "mbpp_v2_train_random.jsonl": {
+   "0": 28,
+   "1": 7,
+   "2": 15,
+   "3": 11,
+   "4": 36
+  }
+ }
+}
