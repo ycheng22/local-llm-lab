@@ -95,6 +95,23 @@ def test_agent_workspace_roundtrip(dummy_task):
         ws.cleanup()
 
 
+def test_agent_feedback_does_not_leak_hidden_tests():
+    task = {"id": "t", "version": 1, "category": "math", "difficulty": 0.5, "prompt": "p",
+            "visible_tests": [{"input": "add(1, 1)", "expected": "2"}],
+            "hidden_tests": [{"input": "add(1000, 337)", "expected": "1337"}]}
+    ws = AgentWorkspace()
+    try:
+        ws.setup_task(task)
+        ws.write_file("main.py", "def add(a, b):\n    return 2 if (a, b) == (1, 1) else 0\n")   # passes visible only
+        ok, msg = ws.run_tests()
+        assert ok and "1337" not in msg          # the tool the agent sees uses visible tests only
+        assert ws.grade() is False               # final grading still includes the hidden tests
+        ws.write_file("main.py", "def add(a, b):\n    return a + b\n")
+        assert ws.grade() is True
+    finally:
+        ws.cleanup()
+
+
 def test_paired_bootstrap_diff():
     from llm_lab_utils import paired_bootstrap_diff
     a = {f"t{i}": 0 for i in range(50)}
@@ -114,3 +131,34 @@ def test_selection_accuracy():
     # visible test passes but hidden fails (a "false friend") caps accuracy
     f = [{"visible": True, "full": False}] * 4
     assert selection_accuracy(f, 4) == 0.0
+
+
+# ---- HumanEval conversion ---------------------------------------------------------------
+_HE_OK = {
+    "task_id": "HumanEval/900", "entry_point": "double_all",
+    "prompt": "from typing import List\n\n\ndef helper(x):\n    return x * 2\n\n\ndef double_all(xs: List[int]) -> List[int]:\n    \"\"\" double each element \"\"\"\n",
+    "canonical_solution": "    return [helper(x) for x in xs]\n",
+    "test": "METADATA = {}\n\n\ndef check(candidate):\n    import math\n    assert candidate([1, 2]) == [2, 4]\n    assert True, 'noise'\n    assert math.isclose(candidate([1])[0], 2.0)\n    assert not candidate([]) == [1]\n",
+}
+
+
+def test_humaneval_convert_and_verify():
+    from llm_lab_utils.humaneval import convert_problem, PreludeVerifier
+    task, reason = convert_problem(_HE_OK)
+    assert task and not reason and task["id"] == "humaneval_900"
+    assert [t["expected"] for t in task["hidden_tests"]] == ["[2, 4]", "True", "True"]
+    assert "def helper" in task["metadata"]["prelude"] and "import math" in task["metadata"]["prelude"]
+    v = PreludeVerifier()
+    # reference solution passes; a candidate that omits the prompt's imports/helpers still works through the prelude
+    assert v.verify(task, task["reference_solution"])["passed"]
+    assert v.verify(task, "def double_all(xs):\n    return [helper(x) for x in xs]")["passed"]
+    assert not v.verify(task, "def double_all(xs):\n    return xs")["passed"]
+
+
+def test_humaneval_unsupported_problems_are_reported():
+    from llm_lab_utils.humaneval import convert_problem
+    loop = dict(_HE_OK, test="def check(candidate):\n    for i in range(3):\n        assert candidate([i]) == [2 * i]\n")
+    task, reason = convert_problem(loop)
+    assert task is None and "non-assert" in reason
+    helper = dict(_HE_OK, test="def enc(x):\n    return x\n\ndef check(candidate):\n    assert candidate([1]) == [2]\n")
+    assert convert_problem(helper)[0] is None

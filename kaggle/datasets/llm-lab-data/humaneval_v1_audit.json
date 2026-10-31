@@ -1,0 +1,34 @@
+{
+ "source_rows": 164,
+ "converted": 157,
+ "dropped": [
+  {
+   "task_id": "HumanEval/32",
+   "reason": "non-assert statement in check(): Assign"
+  },
+  {
+   "task_id": "HumanEval/38",
+   "reason": "non-assert statement in check(): Assign"
+  },
+  {
+   "task_id": "HumanEval/44",
+   "reason": "non-assert statement in check(): For"
+  },
+  {
+   "task_id": "HumanEval/50",
+   "reason": "non-assert statement in check(): Assign"
+  },
+  {
+   "task_id": "HumanEval/53",
+   "reason": "non-assert statement in check(): For"
+  },
+  {
+   "task_id": "HumanEval/129",
+   "reason": "non-assert statement in check(): Expr"
+  },
+  {
+   "task_id": "HumanEval/151",
+   "reason": "non-assert statement in check(): Assign"
+  }
+ ]
+}

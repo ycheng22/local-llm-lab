@@ -1,0 +1,24 @@
+{
+  "id": "ycheng22/x04-length-cap",
+  "title": "x04 Length Cap",
+  "code_file": "x04_length_cap.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/03-baseline-evaluation",
+    "ycheng22/06-grpo-training",
+    "ycheng22/07-grpo-evaluation",
+    "ycheng22/x03-4b-baseline"
+  ],
+  "model_sources": []
+}

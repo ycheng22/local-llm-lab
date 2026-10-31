@@ -1,0 +1,22 @@
+{
+  "id": "ycheng22/x03-4b-baseline",
+  "title": "x03 4B Baseline",
+  "code_file": "x03_4b_baseline.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/03-baseline-evaluation",
+    "ycheng22/07-grpo-evaluation"
+  ],
+  "model_sources": []
+}

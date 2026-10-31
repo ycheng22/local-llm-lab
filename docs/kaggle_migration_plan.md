@@ -26,6 +26,18 @@
 | 15 | SFT 能提升 MBPP | **NB 05 实测（同 100 题、同 seed、配对 bootstrap）**：SFT(256 题参考解, lr 1e-4, 3 epoch) Pass@1 39.0% vs base 40.6%（差 −1.6 pt，95% CI [−8.9, +6.0]，P(sft 更好)=0.32）；Pass@4 −3.8 pt、Pass@8 −4.0 pt，CI 均跨 0 → **无可检测的提升**（也无可检测的下降）。副作用：syntax error 率 5.5% → 1.1%，输出更短（MBPP 平均 ~94 vs ~191 tokens/样本，即风格更简洁）；合成集 99.6% → 98.8%。**100 题的 CI 约 ±7 pt，小于 7 pt 的效应测不出**。这是一个干净的负结果，超参未在 eval 上调过，不再重调 | 已验证 |
 | 16 | 评测成本 ~0.65 hr | NB 05 实际 **1.35 hr**：未合并的 LoRA 使 tokens/s 慢约 2.4x（MBPP 91→37，合成 61→28）。**之后所有评测用 `setup_model_and_tokenizer(..., merge=True)`**（合并后与 base 同速）。evaluator 现在记录 `truncated_rate`（撞到 max_new_tokens 的样本比例）与精确 token 数/`gen_tokens_per_s`；NB 05 合成集 token 数是 base 的 3x 而字符数相近，原因未明，下次评测用上述新指标核查 | 已修复 / 待复核 |
 | 17 | GRPO 6–8 hr / 54 s·step⁻¹ | **06s 冒烟实测**（fp16，每步 4 prompt × 4 生成 = 16 条，per-device batch 2 × accum 8；per-device 8 在首个 backward OOM：logits = batch × 长度 × 248k 词表）：from_sft 25.7 s/步、from_base 46.3 s/步（base 输出更长：~200 vs ~50 tokens，16% 触顶 384）；峰值显存 5.6–6.4 GB；reward 0.25–0.35（非全 0/全 1）。两个 arm 双卡并行 → 200 步约 **2.6 hr 墙钟、只计 1 次**。风险：`frac_reward_zero_std` 达 50–100%（SFT arm 输出更短、多样性低、有效学习信号更少）；fp16 GradScaler 初期 grad_norm=NaN（跳步） | 已实测 |
+| 18 | GRPO 全量训练 ~2.6 hr | **NB 06 实测（200 步，lr 2e-5，G=4，两 arm 双卡并行）**：from_sft 24.5 s/步（1.36 hr）、from_base 41.5 s/步（2.31 hr），Session 计费 **2.34 hr**；峰值显存 6.4–6.5 GB；训练 reward 0.26–0.35 → 0.50–0.66；仅 1 次 NaN grad（fp16 GradScaler 稳定）。**两个 arm 均有 ~61% 的组 reward 方差为 0（无学习信号）**——算力浪费，正是 NB 08 mining 要解决的问题 | 已实测 |
+| 19 | RL 能提升 MBPP | **NB 07 实测（100 题 × n=8，合并 adapter，配对 bootstrap）**：GRPO(base) Pass@1 **58.5%** vs base 40.6%（**+17.9 pt，CI [+12.4, +23.9]**），Pass@4 74.4%（+13.0），Pass@8 80.0%（+11.0），全部显著；合成集 98.5%（无回退）。GRPO(SFT) Pass@1 42.6% vs SFT 39.0%（+3.6，CI [−1.4, +8.9]，不显著）；GRPO(SFT) vs GRPO(base) −15.9 pt（显著）。**结论：RL 直接作用于 base 有效且不只是"锐化"（Pass@8 也升了）；先做 256 题 SFT 反而让 RL 起点更差。** 评测 1.31 hr | 已验证 |
+| 20 | Test-time scaling（NB 09） | **`grpo_from_base`，100 题 × n=16，0.52 hr**：oracle Pass@k = 55.4 / 65.6 / 72.0 / 77.0 / 81.0%（k=1/2/4/8/16）；仅用 prompt 中可见示例测试做选择（可部署）= 55.5 / 64.0 / 68.7 / 71.8 / 73.7%，k=16 时比单样本 +18 pt，但比 oracle 低 7 pt；约 10% 样本是 "false friend"（过了可见测试、挂了隐藏测试） | 已实测 |
+| 21 | "RL 让回答变啰嗦/截断变多" | **截断分析（无 GPU，基于已存样本）**：截断率 base 8.4% / SFT 0.9% / GRPO(base) 8.5% / GRPO(SFT) 1.0% → **截断不是 RL 副作用**，base 本来就有。集中在约 26/100 道题目描述含糊的题上（base 与 GRPO 共有 19 题）：模型在 docstring/注释里推理，来不及写代码；截断样本通过率 1%。GRPO 的收益来自"答完时更准"（完成样本 Pass@1 44% → 64%）。所有模型同一 384 token 上限，比较公平；更大上限未测（见 Step 19e） | 已验证 |
+| 22 | Agent 的 `run_tests` 工具 | 本地 Phase 6 的 `run_tests` 同时运行**可见+隐藏测试并打印 expected/got**，Agent 能从反馈读到隐藏测试答案 → 20%/30% 数字偏高。**修复**：工具只跑可见测试；`grade()` 在结束时用可见+隐藏测试判分，Agent 看不到；新增单测 `test_agent_feedback_does_not_leak_hidden_tests`。NB 10/11 改用 MBPP v2 eval 前 60 题，与单次生成 Pass@1 同题配对比较 | 已实现 / 待运行 |
+| 23 | Mining 结果（NB 08） | **base 模型，`mbpp_v2_train` 256 题 × n=4，0.90 hr（估计 0.6）**：通过数 c=0/1/2/3/4 的题数 = 82/33/34/30/77。分类（solved=3–4 / borderline=2 / hard=1 / impossible=0）= 107/34/33/82。**零方差组（c=0 或 4）占 62.1%，与 NB 06 实测的 ~61% 几乎一致**——挖掘分布可以预测 GRPO 的浪费。impossible 占 32%（本地旧结果是 100%，确认是 prompt 缺陷）。**注意**：`classify_task` 把 c=3 归入 solved，但 c=3 的组仍有奖励方差（30 题），真正"有学习信号"的是 c=1..3 共 97 题（37.9%），而 NB 08 导出的 `hard`/`mixed` 消融集只含 c=1,2 的 67 题（hard=33 全部 + borderline=34）。67 题 × 200 步 × 4 题/步 ≈ 12 轮/题，过拟合风险高 → Step 19g 改用 c=1..3 的 97 题与同样大小的随机集（见下） | 已实测 |
+| 24 | Agent 能超越单次生成（NB 10） | **2B，60 题，5 步，1.11 hr（估计 0.7）**：base agent 50.0% vs 单次 45.0%（+5.0，CI [−5.6, +15.0]）；GRPO agent 58.3% vs 单次 60.4%（−2.1，CI [−11.3, +6.7]）；两者均不显著。GRPO agent vs base agent +8.3（CI [−1.7, +20.0]）不显著。恢复率 33–37%，6–12% 的步骤解析失败，11–17% 的步骤截断，平均用 3.9–4.3 / 5 步。**结论：2B 上工具循环没有可检测的增益，远不如 NB 09 的 "多采样+可见测试选择"（+18 pt）。** 隐藏测试泄漏已修复（false friend 1.7% / 6.7%） | 已实测 |
+| 25 | RL 收益可泛化 | **HumanEval（x02，157 题，n=8，1.50 hr）**：base Pass@1 51.3% → GRPO 53.7%（**+2.4 pt，CI [−0.8, +5.5]，不显著**）；Pass@4 +0.7、Pass@8 +0.6，均不显著。对照 MBPP 的 +17.9 pt：**GRPO 在 256 道 MBPP 题上学到的主要是 MBPP 风格（题面+示例 assert、命名与输出约定），不是通用编码能力**；能排除 >5.5 pt 的迁移收益。未排除的解释：HumanEval 上 base 更强（余地小）、可能被预训练见过。未恶化：截断 3.8% → 4.9%，语法错误 1.1% → 0.6%。需用 19a（逐题）和 19h（改写）检验 "MBPP 风格适配" 假说 | 已实测 |
+| 26 | GRPO 学到了什么（Step 19a） | **失败分析（CPU，`kaggle/tools/analyze_failures.py`，结果 `experiments/analysis/19a_failure_analysis.json`）**：base 有 9.2% 的样本定义了与示例 assert 不同的函数名（`name 'x' is not defined`），GRPO 与 SFT 都降到 ~0.5%；但只有 GRPO 提升了准确率 → 命名只解释约 4/17.9 pt。函数存在时的通过率：base 47.7% → GRPO **62.9%**（SFT 反降到 39.7%）。26/100 题提升 ≥3/8，0 题下降 ≥3/8；增益在 "base 有时能解"（9.6 题单位）与 "base 从不能解"（8.6）之间均分。**假说（有例子支持，未证实）**：base 常忽略 prompt 示例 assert 中的输出约定（`mbpp_773` 期望 `('python', 0, 6)`，base 返回 `(0, 6, 'python')`），GRPO 学会了对齐示例；HumanEval 的 docstring 示例 base 本就能遵循 → 解释无迁移。**检验：Step 19k（新增）= 评测时去掉 MBPP prompt 里的示例 assert，比较 GRPO−base 差距** | 已分析 / 待检验 |
+| 27 | 2B+RL 对比 2 倍参数（Step 19d，x03） | **4B base（384 token 上限，n=8，1.45 hr）**：Pass@1 53.8% / Pass@4 66.2% / Pass@8 69.0%。4B vs 2B base：+13.1 pt（CI [+6.4, +20.3]）；4B vs 2B GRPO：Pass@1 −4.8（n.s.），Pass@4 −8.1、Pass@8 −11.0（均显著，GRPO 更高）。合成集 OOD 99.5%。**警告：4B 有 90.4% 的样本触及 384 token 上限（2B base 8.4%），27.9% 语法错误**（先写长篇推理再写代码）→ 4B 数字是下界，不是公平比较；需 19e（更大上限）复核 | 已实测（有混杂） |
+| 28 | Agent 在 4B 上有效吗（NB 11） | **39/60 题（2400 s 预算用完），0.71 hr**：4B agent 74.4% vs 4B 单次 51.3%（同 39 题，**+23.1 pt，CI [+13.1, +34.0]**）；vs 2B agent 53.8%（+20.5，CI [+7.7, +35.9]）。与 2B（无增益）相反 → agent 循环的收益随模型能力出现。解析失败 15.0%、截断步骤 27.2%、恢复率 28.6%、false friend 5.1%。题集是前 39 题而非随机子集，未重复 | 已实测 |
+| 29 | 384 token 上限是否压低得分（Step 19e，x04） | **2B：不压低**。768 上限下截断率 8.4% → 3.3%（base）、8.5% → 2.8%（GRPO），但 Pass@1 几乎不变（base +0.1 pt，CI [−3.5, +3.7]；GRPO +1.0 pt，CI [−2.9, +5.0]）→ 被截断的样本是在啰嗦而非快写完，之前所有 2B 结论成立。**4B：压低很多**。前 73 题 Pass@1 53.4% → 68.5%（**+15.1 pt，CI [+8.0, +22.3]**）。修正 #27：同 73 题、768 上限、n=4 时，4B base 68.5% vs 2B GRPO 58.2%（+10.3，CI [+2.4, +18.5]，显著），即 "2B+RL 追平 4B" 是上限造成的假象；GRPO 补上了 4B−2B 差距（+27.1）的约 17 pt。**运行问题**：4B 在 768 token 下太慢（~1900 字符/样本 vs 2B 的 680），7200 s 上限在 4B 臂跑到第 73 题时终止（~2.0 hr 计费），summary 单元未执行；数字由保存的 generations.jsonl 离线计算（`scratchpad/x04_analyze.py` 逻辑），4B 截断率未计 | 已实测（4B 部分） |
 | 6 | `kernel-metadata.json` 的 title 任意 | title 必须能 slugify 为 id，否则 Kaggle 使用 title 的 slug（例：id `00-build-wheels` + title `... Local LLM Lab` 得到 `00-build-wheels-local-llm-lab`） | 已踩坑 |
 | 7 | 本地 PATH 有 `kaggle` | CLI 装在仓库 `.venv`；脚本通过 `kaggle/scripts/_env.ps1` 自动加入 PATH | 已实现 |
 | 8 | Wheels 设为 Public | 仅 45 MB，保持 Private（占用可忽略） | 已决定 |
@@ -46,16 +58,52 @@
 | 03 | Baseline：合成 100 + MBPP v1/v2 各 100 题 × n=8 | **1.06（实测）** | 吞吐 ~90 tok/s |
 | 04 | SFT：MBPP 256 题 × 3 epoch，fp16 LoRA（可选 04z：合成 5K，~2.5） | ~0.3 | 步数少；BudgetGuard 保护 |
 | 05 | SFT 评测（MBPP eval 100×8 + 合成 test） | ~0.65 | NB 03 实测：MBPP 0.47 hr、合成 0.11 hr |
-| 06 | GRPO，**上限 1000 步**（非 3250） | ~8–10 | 本地 54 s/步 → 先 20 步冒烟标定 |
-| 07 | GRPO 评测 | ~0.7 | |
+| 06 | GRPO 200 步 × 2 arm 并行 | **2.34（实测）** | 24.5 / 41.5 s/步 |
+| 07 | GRPO 评测（2 arm × MBPP+合成） | **1.31（实测）** | |
 | 08 | Mining，MBPP v2 406 题 × n=4 | ~0.7 | |
-| 09 | Test-time scaling，100 题 × n=16 一次采样 | ~0.6 | 原 5 次独立运行 → 1 次 |
+| 09 | Test-time scaling，100 题 × n=16 一次采样 | **0.52（实测）** | 原 5 次独立运行 → 1 次 |
 | 10 / 11 | Agent 2B / 4B（4B fp16 ≈ 8 GB，单卡可放） | 0.5 + 0.7 | |
-| **核心合计** | | **≈ 16–19** | 落在 1 周 30 hr 内 |
+| **核心合计** | | **≈ 11–12（实测+估计）** | GRPO 比原估计省很多；节省的预算用于 §0.2 扩展 |
 | 12 | Dashboard (CPU) | 0 | |
 | **扩展（可选）** | GRPO 消融 hard / mixed / random，每个 300 步，双卡并行 | ≈ 4–6 | 配置已存在 (`configs/grpo_ablation_*.yaml`) |
 
 **说明**：以上除已实测项外均为**估计**，每个 NB 首次运行后用实测值覆盖此表（写入 `summary.json` 的 `gpu_hours`）。核心 + 扩展 ≈ 20–25 hr，跨 2 周执行即可，不超配额。
+
+### 0.2 Phase 6.5：核心 NB 跑完后的强化与扩展（在进入 Phase 7 之前）
+
+**为什么还要做**：NB 01–11 给出了漂亮的主结果（GRPO(base) Pass@1 +17.9 pt），但从研究严谨性看还有 5 个明显的缺口，每个都能变成一篇有教学价值的博客：
+
+| 缺口 | 现状 | 风险 / 问题 |
+|:--|:--|:--|
+| ① 单一评测集 | 只有 100 道 MBPP 题，CI ≈ ±7 pt | 结论可能只对这 100 题成立；MBPP 还可能被预训练见过（污染） |
+| ② 单一随机种子 | 每个 arm 只训练 1 次（seed 42） | 无法区分 "RL 的收益" 与 "这一次运气好" |
+| ③ 61% 的组无学习信号 | NB 06 实测 | 若 hard-mining 能提高有效信号，应显著提升 GRPO 的 ROI——这是 Phase 4 的核心假说，必须直接用 GRPO 检验，而不是只看分布 |
+| ④ 缺少规模对照 | 只有 2B；AGENTS.md 规定 Qwen3.5-4B 为次要模型 | "RL 后的 2B 能否追上 2 倍参数的 4B？" 是最有教学价值的问题 |
+| ⑤ 失败原因没有系统分类 | 只有 syntax/timeout 率、截断分析 | 缺少"哪些题 RL 新解出 / 丢失"的逐题分析，博客缺少叙事 |
+
+**x02 之后的优先级调整（HumanEval 无迁移）**：主问题变成 "RL 到底学到了什么"。(1) **19a 提高优先级并加入专项**：对 MBPP 上 GRPO 新解出的题，检查失败原因类别（函数名/返回类型/示例 assert 约定 vs 算法错误）、与 base 的差异；(2) **19h（改写鲁棒性）升为必做**；(3) **新增 19j：在 HumanEval 风格数据上训练**（HumanEval 题面作训练集需另有评测集，不能自训自测——改用 MBPP 以外的第二训练源，如 "MBPP 之外的 HF 编程题集" 做 10–20% 混合）仅在 19a 结论支持 "风格适配" 时才做；(4) 19f（多种子）和 19g（mining 消融）仍然有价值，但博客结论要写成 "MBPP 域内的收益"。
+
+**决策门（Step 19a，0 GPU）**：NB 08–11 全部跑完后先做一次 CPU 汇总分析，用数据决定下列步骤的取舍和顺序（例：若 NB 08 显示 learnable 题目占比很低 → 提高 19g 优先级；若 NB 10 显示 agent 增益显著 → 增加 agent 消融；若 HumanEval 上 GRPO 无增益 → 19b 结论改写为"收益主要是 MBPP 风格适配"）。
+
+**预算**：已用 ≈ 8 hr（NB 06/07/09 后）+ NB 08/10/11 ≈ 2 hr ≈ 10 hr。下表 ≈ 10 hr（不含 stretch），总计 ≈ 20–22 hr，**低于 24 hr 目标**；可跨两周执行（配额每周重置）。每一步必须：固定超参于看到结果之前、使用唯一 experiment ID、保存 config、报告 Pass@1/4/8、OOD Pass@1、峰值 VRAM/RAM、墙钟与 GPU hr、**不新增 reward 项**（AGENTS.md 规则 6/10/11）。
+
+| Step | 实验（Notebook 名） | 要回答的问题 | 做法 | 估计 GPU hr | 优先级 |
+|:--|:--|:--|:--|:--:|:--:|
+| 19a | 汇总与失败分析（`x01-failure-analysis`，CPU） | 哪些题 RL 新解出 / 丢失？错误类型如何变化？潜在能力 vs 可靠能力 | 读取 NB 03/05/07/09/10 已存样本；逐题 Venn（base/SFT/GRPO）、错误分类（name error / 断言错误 / 语法 / 超时 / 截断）、按 NB 08 难度分层的收益 | 0 | 必做 |
+| 19b | 外部 OOD 评测（`x02-humaneval-ood`） | RL 的收益是否迁移到另一个基准（不同风格、不同来源）？ | HumanEval（164 题，HF `openai/openai_humaneval`）→ 转换为 `TaskSchema`（`check(candidate)` 断言转 visible/hidden）；对 base 与 GRPO(base) 各 n=8 评测；转换器 `llm_lab_utils/humaneval.py`（含单测）已完成：**164 题中 157 题可转换为纯 assert**，7 题（含循环/随机输入）丢弃并记录在 `humaneval_v1_audit.json`；数据 `humaneval_v1.jsonl` 已写入 `MANIFEST.sha256`（冻结）；参考解在 Kaggle 内（x02 的第 1 步）验证，失败者排除；`max_new_tokens=512`（HumanEval 答案更长，预先登记）。Notebook `x02-humaneval-ood` 已生成，待运行 | ≈ 1.4 | 必做 |
+| 19c | 基础模型的 test-time scaling（复用 NB 09，`MODEL_CHOICE="base"`） | RL 与"多采样+选择"是否可互相替代？ | 同 NB 09 配置，输出 ID 为 `exp04_scaling_base`；与 `grpo_from_base` 画在同一张图（x=每题样本数，y=可部署准确率） | ≈ 0.5 | 必做 |
+| 19d | 4B 单次生成基线（`x03-4b-baseline`） | 2B+GRPO 能否追上 2 倍参数的 4B？ | Qwen3.5-4B fp16，同 100 题、同 n=8、同采样；与 2B base / 2B GRPO 做配对 bootstrap。可选：4B 加 NB 09 的选择曲线 | ≈ 1.0 | 必做 |
+| 19e | 截断敏感性（`x04-length-cap`） | 384 token 上限是否在系统性压低含糊题的得分？ | base 与 GRPO(base) 用 `max_new_tokens=768`、n=4 重评（只改上限），报告 Pass@1 变化与截断率；若显著改变 → 在 README 与博客中标注，并考虑后续训练用更大上限（不加长度惩罚） | ≈ 0.5 | 推荐 |
+| 19f | GRPO 重复种子（`x05-grpo-seeds`） | RL 收益的方差有多大？+17.9 pt 是否稳定？ | `grpo_from_base` 再训练 seed 43 与 44（双卡并行，配置与 NB 06 完全相同，只改 seed）＋ 评测；报告 3 个种子的均值±标准差，与 NB 07 的 CI 对照 | ≈ 3.2（训练 2.4 + 评测 0.8） | 必做 |
+| 19g | Mining 消融（`x06-grpo-mining-ablation`） | 把 GRPO 训练集换成 NB 08 挖出的 "hard/mixed" 题，是否比同大小随机题更有效？零方差组占比是否下降？ | 用 NB 08 报告（`mining_report.json`，CPU 重新导出，不需重跑 GPU）生成 `learnable`（c=1..3，97 题）与同样大小的 `random` 97 题两个集合（NB 08 自带的 67 题 hard/mixed 集过小，12 轮/题易过拟合；也可加第三个 arm=`hard`），`grpo_from_base`，其余超参 = NB 06，双卡并行；报告 Pass@1/4/8、零方差组占比曲线、每 GPU hr 的提升（ROI） | ≈ 3.2 | 必做 |
+| 19h | 鲁棒性（`x07-robustness`） | 提升是真"会写代码"还是记住了 MBPP 的函数名/措辞？ | 对 eval 100 题做确定性改写：函数名/参数名重命名（prompt 与测试同步改），不改变语义；base vs GRPO 评测 n=4；差值即"污染/过拟合"的下界信号 | ≈ 0.5 | 可选 |
+| 19i | （stretch）4B GRPO（`x08-4b-grpo`） | RL 的收益是否随规模保持？ | 先做 6 步冒烟标定 s/步与显存（4B fp16 权重 ≈ 8.4 GB + 248k 词表 logits，可能需 per-device batch 1）；仅当 ① 标定后 200 步 ≤ 5 hr ② 本周剩余配额 ≥ 8 hr 才启动，否则只保留标定结果作为"为什么没做"的文档 | ≤ 5 | stretch |
+
+**执行顺序**：19a → 19b、19c、19d（评测类，便宜、先出结论）→ 19e → 19f、19g（训练类，占大头，先对每个 arm 做 6 步冒烟）→ 19h → （视配额）19i。每完成一步更新 README（规则 18）和本节表格中的实测 GPU hr。
+
+**教学产出**：新增 3 篇博客候选 —— ⑧ "一个种子够吗？RL 收益的方差"（19f）、⑨ "该训练更聪明还是用更大的模型？2B+RL vs 4B"（19d，19i）、⑩ "好题目比多训练更值钱吗？Mining 消融"（19g）。
+
+**统计与报告规范（所有扩展步骤共用）**：同题配对 bootstrap 95% CI；差异小于 CI 宽度的不称"提升"；每个结果表同时给出 n_tasks、n_samples、seed；HumanEval/改写集合属于新的**冻结评测集**，写入 `MANIFEST.sha256` 后不得修改，且不得用于选择超参。
 
 ---
 
@@ -1251,38 +1299,50 @@ print(f"   下一个 Notebook 可通过 model_sources 直接挂载。")
 ## 13. 完整执行 Checklist
 
 ### Phase 0: 准备工作（零 GPU）
-- [ ] **Step 1**: 创建 `SubprocessVerifier`（subprocess + tempfile + resource.setrlimit）
-- [ ] **Step 2**: 重构 `llm_lab_utils/` 包（移除 Docker/Windows/constants 依赖）
-- [ ] **Step 3**: 在 CPU Notebook 中 `pip download` 打包离线 wheel
-- [ ] **Step 4**: 上传 Kaggle Dataset: `llm-lab-utils`（共享库）
-- [ ] **Step 5**: 上传 Kaggle Dataset: `llm-lab-data`（预生成数据集）
-- [ ] **Step 6**: 上传 Public Dataset: `llm-lab-wheels`（离线依赖包，不占私有额度）
-- [ ] **Step 7**: 配置本地 `kaggle.json` API 密钥
+- [x] **Step 1**: 创建 `SubprocessVerifier`（subprocess + tempfile + rlimit，单测通过）
+- [x] **Step 2**: 重构 `llm_lab_utils/` 包（移除 Docker/Windows/constants 依赖）
+- [x] **Step 3**: 离线 wheel（实际仅 6 个包，`00-build-wheels`）
+- [x] **Step 4**: 上传 Kaggle Dataset: `llm-lab-utils`（共享库，`sync_all.ps1`）
+- [x] **Step 5**: 上传 Kaggle Dataset: `llm-lab-data`（含 MBPP v2 切分，冻结 test 集不变）
+- [x] **Step 6**: `llm-lab-wheels`（保持 Private，见 §0 #8）
+- [x] **Step 7**: 配置本地 Kaggle API 密钥与 CLI
 
 ### Phase 1: Foundation Notebooks
-- [ ] **Step 8**: 编写 NB 01，交互式测试（0.5hr GPU）
-- [ ] **Step 9**: 编写 NB 02，CPU 测试（0hr GPU）
-- [ ] **Step 10**: 编写 NB 03，Commit 运行（2hr GPU）
+- [x] **Step 8**: NB 01 / 01b（环境 + dtype 基准）
+- [x] **Step 9**: NB 02（数据审计，CPU）
+- [x] **Step 10**: NB 03（基线，1.06 hr）
 
 ### Phase 2: SFT
-- [ ] **Step 11**: 编写 NB 04，Commit 运行（3hr GPU）
-- [ ] **Step 12**: 下载 SFT checkpoint → `kagglehub.model_upload()` → Private Models
-- [ ] **Step 13**: 编写 NB 05，Commit 运行（2hr GPU）
+- [x] **Step 11**: NB 04（MBPP SFT，0.16 hr）
+- [x] **Step 12**: 用 `kernel_sources` 传递 checkpoint（取代 Private Models 上传）
+- [x] **Step 13**: NB 05（SFT 评测，1.35 hr）
 
 ### Phase 3: GRPO
-- [ ] **Step 14**: 编写 NB 06（含 vLLM 双卡配置），Commit 运行（8hr GPU）
-- [ ] **Step 15**: 下载 GRPO checkpoint → `kagglehub.model_upload()` → Private Models
-- [ ] **Step 16**: 编写 NB 07，Commit 运行（1.5hr GPU）
+- [x] **Step 14**: NB 06s 冒烟 + NB 06 全量（2.34 hr）
+- [x] **Step 15**: checkpoint 经 `kernel_sources` 传递
+- [x] **Step 16**: NB 07（GRPO 评测，1.31 hr）
 
 ### Phase 4-6: Advanced Experiments
-- [ ] **Step 17**: 编写 NB 08，Commit 运行（2hr GPU，双卡双进程）
-- [ ] **Step 18**: 编写 NB 09，Commit 运行（2hr GPU）
-- [ ] **Step 19**: 编写 NB 10 + NB 11，Commit 运行（3hr GPU）
+- [x] **Step 17**: NB 08（mining，0.90 hr）
+- [x] **Step 18**: NB 09（test-time scaling，0.52 hr）
+- [x] **Step 19**: NB 10（1.11 hr）+ NB 11（0.71 hr；4B agent 比其单次生成高 +23 pt）
+
+### Phase 6.5: 强化与扩展（见 §0.2；先过 Step 19 的决策门，再进入 Phase 7）
+- [x] **Step 19a**: 汇总与失败分析（CPU，决策门；结果见 §0 #26）
+- [x] **Step 19b**: HumanEval 外部 OOD 评测（1.50 hr；结果：GRPO 收益不迁移，+2.4 pt n.s.）
+- [ ] **Step 19c**: 基础模型 test-time scaling（对照 NB 09）
+- [x] **Step 19d**: Qwen3.5-4B 单次生成基线（`x03-4b-baseline`，1.45 hr；4B +13.1 pt vs 2B base，但 90% 样本触及 token 上限，需 19e 复核）
+- [x] **Step 19e**: 截断敏感性（`x04-length-cap`，~2.0 hr，4B 臂被 7200 s 上限截断于第 73 题；2B 无影响，4B +15.1 pt，修正了 19d 的结论）
+- [ ] **Step 19f**: GRPO 重复种子（seed 43/44）
+- [ ] **Step 19g**: Mining 消融（hard vs random，GRPO）
+- [ ] **Step 19h**: 鲁棒性（标识符重命名，可选）
+- [ ] **Step 19i**: （stretch）4B GRPO 标定与条件执行
+- [~] **Step 19k**: 示例依赖检验——**用户决定放弃（省 ~0.8 hr 配额）**；19a 的 "对齐示例" 假说保持为**未检验**，博客与 README 中须如实标注
 
 ### Phase 7: Dashboard
-- [ ] **Step 20**: 编写 NB 12，CPU 运行（0hr GPU）
-- [ ] **Step 21**: 最终审查 — 确保所有 Notebook 干净运行
-- [ ] **Step 22**: 撰写博客系列
+- [ ] **Step 20**: 编写 NB 12，CPU 运行（0hr GPU），汇总 NB 01–11 与 19a–19i 的全部结果
+- [ ] **Step 21**: 最终审查 — 确保所有 Notebook 干净运行，README 与计划中的实测值一致
+- [ ] **Step 22**: 撰写博客系列（含 §0.2 新增 3 篇）
 
 ---
 

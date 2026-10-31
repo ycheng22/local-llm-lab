@@ -4,14 +4,14 @@ Run from the repo root: python kaggle/tools/build_nb08_09.py
 
 MODEL_CHOICE (set it at the top of each notebook after NB 07 tells you the best model):
   base | sft | grpo_from_base | grpo_from_sft
-Default is 'base' (needs no adapter), so both notebooks run as-is.
+NB 08 mines with 'base' (the start of the next GRPO ablation); NB 09 scales 'grpo_from_base' (best in NB 07).
 """
 import sys
 sys.path.insert(0, "kaggle/tools")
 from nbbuild import md, code, setup_cell, write_kernel
 
 MODEL_CELL = '''
-MODEL_CHOICE = "base"      # <- change after NB 07: base | sft | grpo_from_base | grpo_from_sft
+MODEL_CHOICE = "@@CHOICE@@"      # base | sft | grpo_from_base | grpo_from_sft (NB 07: grpo_from_base is best)
 def one(pattern):
     hits = glob.glob(pattern, recursive=True); assert hits, f"not found: {pattern}"; return hits[0]
 ADAPTERS = {"base": None,
@@ -53,7 +53,7 @@ import json, gc, torch, psutil, collections, pandas as pd
 from llm_lab_utils import PRIMARY_MODEL_ID, SubprocessVerifier, ExperimentTracker, load_dataset
 from llm_lab_utils.model_utils import setup_model_and_tokenizer
 from llm_lab_utils.miner import mine_tasks
-""" + MODEL_CELL + """
+""" + MODEL_CELL.replace("@@CHOICE@@", "base") + """
 GEN_CFG = {"max_new_tokens": 384, "temperature": 0.7, "top_p": 0.95, "do_sample": True}     # = local mining_complex.yaml
 N_SAMPLES, SEED = 4, 42
 tasks = load_dataset(f"{DATA}/mbpp_v2_train.jsonl")
@@ -139,7 +139,7 @@ from llm_lab_utils import (PRIMARY_MODEL_ID, SubprocessVerifier, ExperimentTrack
 from llm_lab_utils.model_utils import setup_model_and_tokenizer
 from llm_lab_utils.evaluator import run_evaluation
 from llm_lab_utils.metrics import selection_accuracy
-""" + MODEL_CELL + """
+""" + MODEL_CELL.replace("@@CHOICE@@", "grpo_from_base") + """
 GEN_CFG = {"max_new_tokens": 384, "temperature": 0.8, "top_p": 0.95, "do_sample": True}   # = local search_complex.yaml (higher T for diversity)
 N, KS, SEED = 16, [1, 2, 4, 8, 16], 1234
 tasks = load_dataset(f"{DATA}/mbpp_v2_eval.jsonl")
@@ -206,3 +206,14 @@ print(f"saved. wall = GPU hours = {wall_total:.2f}")
 write_kernel("kaggle/kernels/09-test-time-scaling", "09_test_time_scaling.ipynb",
              "ycheng22/09-test-time-scaling", "09 Test Time Scaling", cells09, gpu=True, internet=True,
              kernel_sources=["ycheng22/04-sft-training", "ycheng22/06-grpo-training"])
+
+
+# ---------------------------------------------------------------- 09b (plan Step 19c): same notebook, MODEL_CHOICE = base
+import copy
+cells09b = copy.deepcopy(cells09)
+for c in cells09b:
+    c["source"] = [l.replace('MODEL_CHOICE = "grpo_from_base"', 'MODEL_CHOICE = "base"') for l in c["source"]]
+    if c["cell_type"] == "markdown" and c["source"] and c["source"][0].startswith("# 09 -"):
+        c["source"][0] = "# 09b - Test-Time Compute Scaling of the BASE model (Phase 6.5, Step 19c)\n"
+write_kernel("kaggle/kernels/09b-test-time-scaling-base", "09b_test_time_scaling_base.ipynb",
+             "ycheng22/09b-test-time-scaling-base", "09b Test Time Scaling Base", cells09b, gpu=True, internet=True, kernel_sources=[])

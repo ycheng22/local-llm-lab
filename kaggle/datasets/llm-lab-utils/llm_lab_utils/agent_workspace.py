@@ -27,12 +27,15 @@ class AgentWorkspace:
         with open(main_path, "w", encoding="utf-8") as f:
             f.write(code)
             
-        self._build_test_script(task_dict)
-        
-    def _build_test_script(self, task_dict: Dict[str, Any]):
-        """Builds a test script that imports main.py and runs all tests."""
-        test_path = os.path.join(self.workspace_dir, "test_runner.py")
-        
+        # The agent's run_tests tool sees ONLY the visible tests (the example already in the prompt).
+        # Hidden tests are used by grade() alone, so tool feedback cannot leak them.
+        self._build_test_script("test_runner.py", task_dict.get("visible_tests", []))
+        self._build_test_script("grader.py", task_dict.get("visible_tests", []) + task_dict.get("hidden_tests", []))
+
+    def _build_test_script(self, filename: str, all_tests):
+        """Builds a script that imports main.py and runs the given tests."""
+        test_path = os.path.join(self.workspace_dir, filename)
+
         script = limit_prelude(self.max_memory_mb * 1024 * 1024, int(self.timeout) + 1)
         script += "import sys\n"
         script += "try:\n"
@@ -41,8 +44,6 @@ class AgentWorkspace:
         script += "    print(f'Import error: {e}', file=sys.stderr)\n"
         script += "    sys.exit(1)\n\n"
         script += "tests_passed = 0\n"
-        
-        all_tests = task_dict.get("visible_tests", []) + task_dict.get("hidden_tests", [])
         
         for i, test in enumerate(all_tests):
             script += f"try:\n"
@@ -86,10 +87,18 @@ class AgentWorkspace:
             return f"Error writing file: {e}"
 
     def run_tests(self) -> Tuple[bool, str]:
-        """Tool: run the hidden tests in a throwaway subprocess (see SubprocessVerifier for the isolation model)."""
+        """Tool: run the VISIBLE tests (feedback for the agent) in a throwaway subprocess."""
+        return self._run("test_runner.py")
+
+    def grade(self) -> bool:
+        """Final grading (visible + hidden tests). Never shown to the agent."""
+        return self._run("grader.py")[0]
+
+    def _run(self, script_name: str) -> Tuple[bool, str]:
+        """See SubprocessVerifier for the isolation model."""
         try:
             process = subprocess.run(
-                [sys.executable, "-E", "test_runner.py"],  # not -I: tests must import main.py from cwd
+                [sys.executable, "-E", script_name],  # not -I: tests must import main.py from cwd
                 text=True,
                 capture_output=True,
                 timeout=self.timeout,

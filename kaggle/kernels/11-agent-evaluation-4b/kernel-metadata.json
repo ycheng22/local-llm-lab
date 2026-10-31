@@ -1,0 +1,22 @@
+{
+  "id": "ycheng22/11-agent-evaluation-4b",
+  "title": "11 Agent Evaluation 4B",
+  "code_file": "11_agent_evaluation_4b.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/03-baseline-evaluation",
+    "ycheng22/10-agent-evaluation-2b"
+  ],
+  "model_sources": []
+}

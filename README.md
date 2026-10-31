@@ -203,6 +203,129 @@
 5. **GRPO smoke test (NB 06s):** 25.7 s/step (from SFT) and 46.3 s/step (from base, wordier answers), peak VRAM 5.6-6.4 GB, train reward 0.25-0.35. Projected 200 steps with both arms in parallel: about 2.6 h wall, billed once. Risk noted: 50-100% of sampled groups had zero reward variance (no learning signal).
 6. **Cost lessons:** an unmerged LoRA adapter made evaluation about 2.4x slower (NB 05 cost 1.35 GPU h instead of ~0.65); adapters are now merged before evaluation. Per-device batch 8 ran out of memory in GRPO because Qwen3.5's 248k-token vocabulary makes the logits tensor huge; batch 2 with accumulation 8 keeps the same 16 completions per step.
 
+7. **GRPO training (NB 06, both arms in parallel, 200 steps, lr 2e-5, G=4, 16 completions/step):** `grpo_from_sft` 24.5 s/step (1.36 h), `grpo_from_base` 41.5 s/step (2.31 h); the session was billed 2.34 h. Peak VRAM 6.4-6.5 GB. Train reward rose from ~0.26-0.35 to ~0.5-0.66. Only 1 NaN-gradient log in total (fp16 scaler is stable). **61% of groups had zero reward variance** in both arms, i.e. most sampled groups taught nothing.
+8. **GRPO evaluation (NB 07, 100 held-out MBPP tasks, 8 samples, merged adapters, paired bootstrap 95% CI):**
+
+| Model | Pass@1 | Pass@4 | Pass@8 | OOD Pass@1 (synthetic) |
+| :--- | :--- | :--- | :--- | :--- |
+| base | 40.6% | 61.4% | 69.0% | 99.6% |
+| SFT | 39.0% | 57.6% | 65.0% | - |
+| **GRPO from base** | **58.5%** | **74.4%** | **80.0%** | 98.5% |
+| GRPO from SFT | 42.6% | 56.4% | 63.0% | 100% |
+
+   - GRPO(base) vs base: Pass@1 **+17.9 pt, CI [+12.4, +23.9]**; Pass@4 +13.0 [+6.7, +20.2]; Pass@8 +11.0 [+4.0, +19.0]. Significant at every k.
+   - GRPO(SFT) vs SFT: Pass@1 +3.6 [-1.4, +8.9], not significant. GRPO(SFT) vs GRPO(base): -15.9 [-22.4, -9.4], significant.
+   - Analysis: RL on pass/fail unit tests improved the base model more than it merely sharpened the distribution (Pass@8 also rose). Doing SFT first on 256 MBPP tasks did not help and left RL a worse starting point. Caveat: GRPO(base) answers are wordier (8.7% truncated at 384 tokens, syntax-error rate 6.1%). Eval used 1.31 GPU h.
+9. **Test-time scaling (NB 09, `grpo_from_base`, 16 samples/task, 0.52 GPU h):**
+
+| k | Oracle Pass@k | Visible-test selection |
+| :--- | :--- | :--- |
+| 1 | 55.4% | 55.5% |
+| 2 | 65.6% | 64.0% |
+| 4 | 72.0% | 68.7% |
+| 8 | 77.0% | 71.8% |
+| 16 | 81.0% | 73.7% |
+
+   Selecting among 16 samples with only the example test shown in the prompt gives about +18 pt over a single sample, but trails the oracle by 7 pt at k=16 because ~10% of samples are "false friends" (pass the visible example, fail hidden tests). Truncation (9.4%) and syntax errors (7.1%) remain a lever to examine.
+
+10. **Truncation analysis (no GPU; from saved NB 03/05/07 generations, a sample counts as truncated if its code fence never closes):**
+
+| Model | Truncated at 384 tokens | Pass@1 when not truncated |
+| :--- | :--- | :--- |
+| base | 8.4% | 44% |
+| SFT | 0.9% | 39% |
+| GRPO from base | 8.5% | 64% |
+| GRPO from SFT | 1.0% | 43% |
+
+   - Truncation is **not an RL side effect**: the base model has the same rate. It concentrates on ~26 of 100 tasks (19 shared between base and GRPO), where the model reasons inside docstrings/comments about an ambiguous task statement and runs out of tokens before writing code (no repetition loops found). Truncated samples pass 1% of the time.
+   - SFT removed truncation (0.9%) but not errors; **GRPO's gain comes from being right when it answers** (44% -> 64% on completed samples), not from shorter answers. Evaluation uses the same 384-token cap for every model, so the comparisons stay fair; a larger cap is untested.
+   - Also this phase: the agent harness no longer lets `run_tests` reveal hidden-test expectations (visible tests for feedback, hidden tests only for final grading); NB 10/11 (agent 2B/4B) are written and not yet run.
+
+11. **Hard-example mining (NB 08, base model, 256 MBPP training tasks x 4 samples, 0.90 GPU h):**
+
+| Passes out of 4 | 0 | 1 | 2 | 3 | 4 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Tasks | 82 | 33 | 34 | 30 | 77 |
+
+   - Classes: solved 107 (42%), borderline 34, hard 33, impossible 82 (32%). The old local "420/420 impossible" result is confirmed to have been a prompt artefact.
+   - **62.1% of tasks have zero outcome variance** (0 or 4 passes), matching the ~61% of GRPO groups with zero reward spread measured in NB 06. Mining therefore predicts how much GRPO compute is wasted. Only 37.9% of tasks (1-3 passes, 97 tasks) can teach anything.
+   - Caveat: `classify_task` labels 3/4 as "solved" although those groups still carry signal. The exported `hard`/`mixed` sets hold only 67 tasks, so the planned GRPO mining ablation (Step 19g) will use the 97 tasks with 1-3 passes versus 97 random tasks.
+
+12. **Agent evaluation, 2B (NB 10; 60 held-out MBPP tasks, ReAct loop with read/write/run_tests/submit, max 5 steps; `run_tests` shows only the visible example, hidden tests grade at the end; 1.11 GPU h):**
+
+| Model | Agent success | Single-shot Pass@1, same tasks | Agent - single-shot (95% CI) | Recovery | Parse-error steps | Truncated steps |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| base | 50.0% | 45.0% | +5.0 pt [-5.6, +15.0] | 36.8% | 6.2% | 17.0% |
+| GRPO from base | 58.3% | 60.4% | -2.1 pt [-11.3, +6.7] | 33.3% | 11.5% | 11.5% |
+
+   - **The agent loop did not beat single-shot generation at 2B**, either for the base or for the GRPO model (no CI excludes zero). GRPO-as-agent vs base-as-agent is +8.3 pt [-1.7, +20.0], also not significant. The only significant contrast (GRPO agent vs single-shot base, +13.3 pt) is the RL gain itself.
+   - Compare the cost-effectiveness: choosing among 16 samples with the visible test (NB 09) gave about +18 pt; five agent steps gave about zero. For small models the format overhead (6-12% unparseable steps, 11-17% truncated steps, about 4 of 5 steps used) eats the benefit of feedback.
+   - Hidden-test leak fixed in this run (see item 10): false friends are 1.7% (base) and 6.7% (GRPO).
+13. **External OOD test: HumanEval (x02; 157 of 164 problems expressible as plain asserts, 0 canonical solutions failed the audit, n=8, 512-token cap; 1.50 GPU h):**
+
+| Model | Pass@1 | Pass@4 | Pass@8 |
+| :--- | :--- | :--- | :--- |
+| base | 51.3% | 68.7% | 75.2% |
+| GRPO from base | 53.7% | 69.3% | 75.8% |
+| difference (95% CI) | +2.4 [-0.8, +5.5] | +0.7 [-3.5, +4.9] | +0.6 [-4.5, +5.7] |
+
+   - **The MBPP gain (+17.9 pt) does not transfer to HumanEval** (+2.4 pt, CI includes 0). The CI is about +/-3 pt, so a transfer gain larger than ~5.5 pt can be ruled out. This is the most important caveat on the Phase 3 result: **what GRPO learned on 256 MBPP tasks is mostly specific to MBPP-style tasks** (task wording plus the example assert, naming and output conventions), not general coding ability.
+   - Context: the base model is already stronger on HumanEval (51.3% vs 40.6% on MBPP), so there is less headroom, and HumanEval may be partly memorised by the pretrained model. Neither explanation is tested yet (plan Steps 19a, 19h).
+   - No harm either: truncation (3.8% -> 4.9%) and syntax errors (1.1% -> 0.6%) did not get worse.
+
+14. **Failure analysis (plan Step 19a; CPU only, `python kaggle/tools/analyze_failures.py` on the saved MBPP samples):**
+
+| Share of all 800 samples | base | SFT | GRPO from base | GRPO from SFT |
+| :--- | :--- | :--- | :--- | :--- |
+| pass | 40.6% | 39.0% | 58.5% | 42.6% |
+| wrong function name (`name 'x' is not defined`) | **9.2%** | 0.5% | 0.6% | 0.6% |
+| wrong output | 34.9% | 46.3% | 29.7% | 43.8% |
+| other exception | 9.4% | 12.9% | 4.8% | 11.3% |
+| syntax error | 5.5% | 1.1% | 6.1% | 1.1% |
+| Pass rate when the function exists | 47.7% | 39.7% | **62.9%** | 43.5% |
+
+   - **About 4 of the 17.9 points are format-following**: 9.2% of base samples define a different function name than the example assert uses (for example `is_prime` instead of `prime_num`). GRPO removes this, but so does SFT (0.5%), and SFT did not improve, so fixing names alone does not produce the gain.
+   - **The rest (~14 pt) is higher correctness once the function exists** (47.7% -> 62.9%). 26 of 100 tasks improved by 3 or more samples out of 8, none got worse by that much, and the gain splits evenly between tasks the base model sometimes solves (9.6 task-units) and never solves (8.6).
+   - **Hypothesis (supported by examples, not proven):** the base model often ignores the output convention shown in the prompt's example assert. In `mbpp_773` the example expects `('python', 0, 6)` and the base returns `(0, 6, 'python')`; in `mbpp_625` it returns the list unchanged. GRPO learned to match the example. HumanEval states the signature and examples in a docstring that the base model already follows, which would explain why the gain does not transfer (item 13). A direct test (re-evaluating MBPP with the example assert removed from the prompt) was considered and deliberately skipped to save quota, so this hypothesis stays untested.
+
+15. **Qwen3.5-4B baseline (x03; same 100 MBPP tasks, n=8, 384-token cap as NB 03/07; 1.45 GPU h):**
+
+| Model | Pass@1 | Pass@4 | Pass@8 |
+| :--- | :--- | :--- | :--- |
+| 2B base | 40.6% | 61.4% | 69.0% |
+| 4B base | 53.8% | 66.2% | 69.0% |
+| 2B GRPO from base | 58.5% | 74.4% | 80.0% |
+| 4B base vs 2B base (95% CI) | +13.1 [+6.4, +20.3] | +4.8 [-2.8, +12.8] | 0.0 [-9.0, +9.0] |
+| 4B base vs 2B GRPO (95% CI) | -4.8 [-10.9, +1.5] | -8.1 [-15.4, -1.0] | -11.0 [-19.0, -3.0] |
+
+   - **Doubling the parameters gave +13.1 pt Pass@1; GRPO on 256 tasks gave +17.9 pt.** At Pass@1 the 2B GRPO model is at least as good as the 4B base (difference n.s.); at Pass@4 and Pass@8 it is significantly better. Synthetic OOD Pass@1 is 99.5% (2B base 99.6%).
+   - **Caveat: the 4B number is a lower bound.** 90.4% of 4B samples hit the 384-token cap (2B base: 8.4%) and 27.9% are syntax errors, because 4B starts with a long natural-language reasoning preamble ("The user wants me to ...") before the code. The 4B vs 2B comparison therefore mixes capability with the token budget. A fair test needs a larger cap (plan Step 19e).
+   - Peak VRAM 8.7 GB, one T4.
+16. **Agent evaluation, 4B (NB 11; same 60-task list as NB 10, but the 2400 s time budget ended after 39 tasks; 0.71 GPU h):**
+
+| Comparison on the same 39 tasks | Reference | 4B agent | Difference (95% CI) |
+| :--- | :--- | :--- | :--- |
+| vs 4B single-shot (x03) | 51.3% | 74.4% | **+23.1 pt [+13.1, +34.0]** |
+| vs 2B single-shot (NB 03) | 43.9% | 74.4% | +30.4 pt [+16.7, +44.2] |
+| vs 2B agent (NB 10) | 53.8% | 74.4% | +20.5 pt [+7.7, +35.9] |
+
+   - **Unlike 2B (item 12), the agent loop clearly helps at 4B**: +23 pt over its own single-shot, CI excludes zero. Recovery rate 28.6%, false friends 5.1%.
+   - Format overhead is still large: 15.0% of steps unparseable, 27.2% truncated (the verbose 4B again), mean 3.8 steps. The loop works despite this, because feedback lets the model finish after truncation.
+   - Only 39 of 60 tasks completed within the time budget, so the CI is wide and the tasks are the first 39 of the list, not a random subset. The run was not repeated.
+
+17. **Token-cap sensitivity (x04, plan Step 19e; MBPP eval, cap 384 -> 768, n=4; the run hit its 7200 s cap, so the 4B arm is partial; ~2.0 GPU h billed):**
+
+| Model | Pass@1 @384 (n=8) | Pass@1 @768 (n=4) | Change (95% CI) | Truncated @384 -> @768 | Pass@4 @768 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 2B base | 40.6% | 40.8% | +0.1 pt [-3.5, +3.7] | 8.4% -> 3.3% | 58.0% |
+| 2B GRPO from base | 58.5% | 59.5% | +1.0 pt [-2.9, +5.0] | 8.5% -> 2.8% | 79.0% |
+| 4B base (first 73 of 100 tasks only) | 53.4% | 68.5% | **+15.1 pt [+8.0, +22.3]** | 90.4% -> not logged | n/a |
+
+   - **For the 2B models the 384 cap was not hiding anything.** Raising it to 768 cut truncation by about 5 pt but Pass@1 did not move (CIs include 0). The samples that were cut off at 384 are rambling, not nearly-correct code, which confirms the truncation analysis above. All 2B results in this README stand.
+   - **For 4B the cap was the problem.** Its Pass@1 rises from 53.4% to 68.5% on the same 73 tasks. The x03 result (item 15) understated 4B by about 15 pt.
+   - **Revised "2B + RL vs 2x parameters" (73 common tasks, cap 768, n=4):** 4B base 68.5% vs 2B GRPO 58.2%, +10.3 pt [+2.4, +18.5], so **the 4B model is significantly better than the GRPO-trained 2B model once it is allowed to finish**. 4B vs 2B base is +27.1 pt [+17.8, +36.3]; GRPO closes about 17 of those 27 points. The earlier finding "2B GRPO matches 4B" (item 15) was an artefact of the cap.
+   - **Limits:** the 4B arm only covers the first 73 tasks (the run was cut off during the 4B arm, because 4B at 768 tokens is slow: about 1900 characters per sample versus 680 for 2B), so the 4B comparison uses 73 tasks and n=4. No `summary.json` exists for the 4B arm and the summary cell never ran; the numbers above are computed from the saved `generations.jsonl` files. The 4B truncation rate at 768 was not computed. Slow 4B decoding at 768 tokens also raises the cost of any further 4B experiment (plan Step 19i).
+
 ### GPU time used so far (Kaggle free tier: 30 h/week)
 | Notebook | GPU hours |
 | :--- | :--- |
@@ -211,9 +334,17 @@
 | 04 SFT (96 steps, 7.3 GB peak VRAM) | 0.16 |
 | 05 SFT evaluation | 1.35 |
 | 06s GRPO smoke (incl. one OOM run) | ~0.2 |
-| **Running total (estimate)** | **~3.3-4.5 of 30** |
+| 06 GRPO training (2 arms in parallel, 200 steps) | 2.34 |
+| 07 GRPO evaluation | 1.31 |
+| 08 hard-example mining | 0.90 |
+| 09 test-time scaling | 0.52 |
+| 10 agent evaluation 2B | 1.11 |
+| x02 HumanEval OOD | 1.50 |
+| x03 4B baseline | 1.45 |
+| 11 agent evaluation 4B | 0.71 |
+| x04 length cap (cut off at the 7200 s limit) | ~2.0 |
+| **Running total (estimate)** | **~15.1 of 30** (check Settings -> Quota) |
 
 ### Pending (to be filled in as notebooks complete)
-- **NB 06/07 GRPO training and evaluation:** both arms (from SFT, from base) vs base/SFT with paired CIs; peak VRAM, RAM, wall time, GPU hours.
-- **NB 08 hard-example mining** (re-run with the corrected prompt) and **NB 09 test-time scaling** (oracle Pass@k and a deployable visible-test selection from one batch of 16 samples).
+- GRPO mining ablation, extra seeds, HumanEval, 4B baseline, failure analysis (plan Phase 6.5, Steps 19a-19i).
 - Redo of the agent experiments (NB 10/11) with the corrected prompt, then the research dashboard (NB 12).

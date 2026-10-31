@@ -1,0 +1,23 @@
+{
+  "id": "ycheng22/10-agent-evaluation-2b",
+  "title": "10 Agent Evaluation 2B",
+  "code_file": "10_agent_evaluation_2b.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "ycheng22/03-baseline-evaluation",
+    "ycheng22/06-grpo-training",
+    "ycheng22/07-grpo-evaluation"
+  ],
+  "model_sources": []
+}

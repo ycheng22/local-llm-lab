@@ -98,3 +98,49 @@ def test_grpo_reward_fn_and_format():
     assert fn(["p", "p"], [good, bad], **kw) == [1.0, 0.0]
     msgs = format_grpo_example({"prompt": "P", "starter_code": "S"})["prompt"]
     assert msgs[1]["content"] == "P\n\nS" and msgs[0]["role"] == "system"
+
+
+# ---- agent loop with a scripted fake model -------------------------------------------------
+class _ScriptedAgent:
+    """Tokenizer+model stand-in: each generate() call returns the next scripted completion."""
+    eos_token_id = 0
+
+    def __init__(self, completions):
+        import torch
+        self.torch, self.completions, self.i = torch, list(completions), 0
+        self.device = "cpu"
+        self.last = None
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        return "prompt"
+
+    def __call__(self, text, return_tensors=None):
+        t = self.torch
+        class _B(dict):
+            def to(self_, d): return self_
+        b = _B(input_ids=t.ones((1, 3), dtype=t.long), attention_mask=t.ones((1, 3), dtype=t.long))
+        b.input_ids = b["input_ids"]
+        return b
+
+    def generate(self, **kw):
+        self.last = self.completions[self.i]; self.i += 1
+        new = self.torch.tensor([[5, 6, 7, 0]])                    # 3 real tokens + eos
+        return self.torch.cat([kw["input_ids"], new], dim=1)
+
+    def decode(self, ids, skip_special_tokens=True):
+        return self.last
+
+
+def test_agent_loop_recovers_and_is_graded_on_hidden_tests():
+    from llm_lab_utils.agent_loop import run_agent_loop
+    task = {"id": "t", "version": 1, "category": "m", "difficulty": 0.5, "prompt": "p", "starter_code": "",
+            "visible_tests": [{"input": "add(1, 1)", "expected": "2"}],
+            "hidden_tests": [{"input": "add(5, 5)", "expected": "10"}]}
+    wrong = "Action: write_file\nAction Input: main.py\nAction Content:\n```python\ndef add(a, b):\n    return 0\n```"
+    right = "Action: write_file\nAction Input: main.py\nAction Content:\n```python\ndef add(a, b):\n    return a + b\n```"
+    run = "Action: run_tests\nAction Input: none"
+    submit = "Action: submit\nAction Input: none"
+    m = _ScriptedAgent([wrong, run, right, run, submit])
+    r = run_agent_loop(task, m, m, max_steps=5)
+    assert r["passed"] and r["recovery"] and r["steps"] == 5 and r["parse_errors"] == 0
+    assert r["tokens_generated"] == 15

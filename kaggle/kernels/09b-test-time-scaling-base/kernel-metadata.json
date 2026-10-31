@@ -1,0 +1,19 @@
+{
+  "id": "ycheng22/09b-test-time-scaling-base",
+  "title": "09b Test Time Scaling Base",
+  "code_file": "09b_test_time_scaling_base.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "ycheng22/llm-lab-utils",
+    "ycheng22/llm-lab-data",
+    "ycheng22/llm-lab-wheels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

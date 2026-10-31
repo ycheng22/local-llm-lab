@@ -104,8 +104,13 @@ def extract_action(text: str) -> Tuple[str, str, str]:
 
     return None, "", ""
 
-def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -> Dict[str, Any]:
-    """Executes the autonomous agent loop for a given task."""
+def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5,
+                   max_new_tokens: int = 512, temperature: float = 0.2) -> Dict[str, Any]:
+    """
+    Executes the autonomous agent loop for a given task.
+    The run_tests tool shows only the VISIBLE tests; `passed` is decided at the end by grade() (visible + hidden),
+    so tool feedback cannot leak hidden tests.
+    """
     workspace = AgentWorkspace()
     workspace.setup_task(task, initial_code=task.get("starter_code", ""))
     
@@ -119,7 +124,11 @@ def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -
         "passed": False,
         "steps": 0,
         "history": [],
-        "recovery": False
+        "recovery": False,
+        "parse_errors": 0,
+        "tokens_generated": 0,
+        "truncated_steps": 0,
+        "visible_passed": False,
     }
     
     first_test_passed = None
@@ -134,13 +143,18 @@ def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -
             
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=512,
-                temperature=0.2, # Low temperature for more reliable formatting
+                max_new_tokens=max_new_tokens,
+                temperature=temperature, # Low temperature for more reliable formatting
                 do_sample=True,
                 pad_token_id=tokenizer.eos_token_id
             )
             
             gen_tokens = outputs[0][inputs.input_ids.shape[1]:]
+            eos = tokenizer.eos_token_id
+            n_new = int((gen_tokens != eos).sum())          # pad == eos, so this excludes padding/stop tokens
+            result["tokens_generated"] += n_new
+            if n_new >= max_new_tokens:
+                result["truncated_steps"] += 1
             completion = tokenizer.decode(gen_tokens, skip_special_tokens=True)
             
             messages.append({"role": "assistant", "content": completion})
@@ -150,6 +164,7 @@ def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -
             
             observation = ""
             if not action:
+                result["parse_errors"] += 1
                 observation = "Error: Could not parse Action. Please provide your solution in a ```python code block or use 'Action: run_tests' / 'Action: submit'."
             elif action == "read_file":
                 observation = workspace.read_file(action_input or "main.py")
@@ -161,22 +176,19 @@ def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -
                 passed, obs = workspace.run_tests()
                 observation = obs
                 
-                # Tracking recovery metrics
+                # Tracking recovery metrics (on the visible tests the agent can see)
                 if first_test_passed is None:
                     first_test_passed = passed
                 elif first_test_passed is False and passed is True:
                     result["recovery"] = True
                 
                 if passed:
-                    result["passed"] = True
                     observation += "\nAll tests passed! Please call 'Action: submit' to complete the task."
                 else:
                     observation += "\nTests failed. Please inspect the error and update main.py using write_file."
                     
             elif action == "submit":
-                passed, obs = workspace.run_tests()
-                result["passed"] = passed
-                observation = "Task submitted. " + ("All tests passed!" if passed else f"Tests failed: {obs}")
+                observation = "Task submitted."
                 break
             else:
                 observation = f"Error: Unknown action {action}."
@@ -184,12 +196,12 @@ def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -
             messages.append({"role": "user", "content": f"Observation:\n{observation}"})
             result["history"].append({"role": "user", "content": observation})
             
-        # Final pass verification if not already explicitly marked
-        if not result["passed"]:
-            final_passed, _ = workspace.run_tests()
-            result["passed"] = final_passed
-            if first_test_passed is False and final_passed:
-                result["recovery"] = True
+        # Final grading on visible + hidden tests, whether the agent submitted or ran out of steps.
+        result["passed"] = workspace.grade()
+        result["visible_passed"] = workspace.run_tests()[0]
+        result["first_test_passed"] = first_test_passed
+        if first_test_passed is False and result["visible_passed"]:
+            result["recovery"] = True
                 
     finally:
         workspace.cleanup()
@@ -197,33 +209,47 @@ def run_agent_loop(task: Dict[str, Any], model, tokenizer, max_steps: int = 5) -
     return result
 
 
-def evaluate_agent(model, tokenizer, tasks, max_steps: int = 5, progress: bool = True):
-    """Runs the agent over tasks. Returns (metrics, traces)."""
+def evaluate_agent(model, tokenizer, tasks, max_steps: int = 5, progress: bool = True,
+                   time_budget_s: float = None, seed: int = None, **loop_kwargs):
+    """
+    Runs the agent over tasks. Returns (metrics, traces).
+    seed: if given, torch is re-seeded to seed+task_index before every task (deterministic sampling per task).
+    time_budget_s: stop starting new tasks after this many seconds (metrics then cover the finished tasks only
+    and report n_tasks_run, so a truncated run is never mistaken for a full one).
+    """
+    import time
+
     iterator = tasks
     if progress:
         from tqdm.auto import tqdm
         iterator = tqdm(tasks)
 
     traces = []
-    total_passed = total_steps_passed = total_recoveries = total_initial_failures = 0
+    t0 = time.time()
+    for idx, task_obj in enumerate(iterator):
+        if time_budget_s is not None and time.time() - t0 > time_budget_s:
+            break
+        if seed is not None:
+            import torch
+            torch.manual_seed(seed + idx)
+        task = task_obj.model_dump() if hasattr(task_obj, "model_dump") else task_obj
+        traces.append(run_agent_loop(task, model, tokenizer, max_steps=max_steps, **loop_kwargs))
 
-    for task_obj in iterator:
-        result = run_agent_loop(task_obj.model_dump(), model, tokenizer, max_steps=max_steps)
-        traces.append(result)
-
-        if result["passed"]:
-            total_passed += 1
-            total_steps_passed += result["steps"]
-        if result["recovery"]:
-            total_recoveries += 1
-            total_initial_failures += 1
-        elif not result["passed"] and result["steps"] > 1:
-            # Approximation carried over from the local implementation.
-            total_initial_failures += 1
-
+    n = len(traces)
+    passed = [t for t in traces if t["passed"]]
+    # Recovery: of the runs whose first visible test failed, the share that ended with passing visible tests.
+    first_failed = [t for t in traces if t.get("first_test_passed") is False]
+    steps_total = sum(t["steps"] for t in traces)
     metrics = {
-        "task_completion_rate": total_passed / len(tasks) if tasks else 0,
-        "steps_to_success": total_steps_passed / total_passed if total_passed else 0,
-        "recovery_rate": total_recoveries / total_initial_failures if total_initial_failures else 0,
+        "n_tasks_run": n,
+        "task_completion_rate": len(passed) / n if n else 0,
+        "steps_to_success": sum(t["steps"] for t in passed) / len(passed) if passed else 0,
+        "recovery_rate": sum(t["recovery"] for t in traces) / len(first_failed) if first_failed else 0,
+        "mean_steps": steps_total / n if n else 0,
+        "parse_error_rate": sum(t["parse_errors"] for t in traces) / steps_total if steps_total else 0,
+        "truncated_step_rate": sum(t["truncated_steps"] for t in traces) / steps_total if steps_total else 0,
+        "tokens_generated": sum(t["tokens_generated"] for t in traces),
+        # passed the visible example the agent could test against, failed the hidden tests
+        "false_friend_rate": sum(1 for t in traces if t["visible_passed"] and not t["passed"]) / n if n else 0,
     }
     return metrics, traces
