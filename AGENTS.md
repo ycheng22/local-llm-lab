@@ -38,4 +38,4 @@ Qwen/Qwen3.5-4B
 15. Do not redesign the model architecture.
 16. Prefer small experiments that can finish in hours.
 17. Never overwrite previous experiment artifacts.
-18. We must document all metrics, important analysis, and a summary of completed tasks (based on the implementation plan instructions) in the README.md after each phase.
+18. We must document all metrics, important analysis, and a summary of completed tasks (based on the implementation plan instructions) after each phase: the detailed log goes in docs/EXPERIMENT_LOG.md, and the root README.md carries the headline results and is kept in sync.

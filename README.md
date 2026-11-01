@@ -25,6 +25,8 @@ Held-out MBPP, 100 frozen tasks, 8 samples per task, temperature 0.7, 384-token 
 - **The gain is task-style specific:** it survives renaming functions (+13 points) but **does not transfer to HumanEval** (+2.4 points, CI [-0.8, +5.5]).
 - **Bigger still wins:** the 4B model is about 27 points above 2B base at an adequate token cap. GRPO closes more than half of that gap. 4B GRPO was a no-go (8.9 projected hours against a 5 h budget).
 
+![Pass@1 gain per training GPU hour](reports/figures_final/f2_roi.png)
+
 Limitations are listed [below](#limitations); please read them before quoting any number.
 
 ## What makes it trustworthy
