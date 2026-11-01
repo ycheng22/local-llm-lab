@@ -120,7 +120,7 @@ fig, ax = plt.subplots(figsize=(7, 3.8))
 names = {"sft": "SFT", "grpo_s42": "GRPO s42", "grpo_s43": "GRPO s43", "grpo_s44": "GRPO s44", "learnable97": "GRPO learnable97", "random97": "GRPO random97"}
 ax.bar([names[k] for k, _ in roi], [v for _, v in roi], color=[C_OTHER if k == "sft" else C_GRPO for k, _ in roi])
 for i, (_, v) in enumerate(roi): ax.text(i, v + (0.15 if v >= 0 else -0.6), f"{v:+.1f}", ha="center", fontsize=8)
-ax.set_ylabel("Pass@1 gain over base per training T4-hour (pt/h)"); ax.set_title("Return on training compute"); plt.xticks(rotation=25, ha="right")
+ax.set_ylabel("Pass@1 gain per training h (pt/h)"); ax.set_title("Return on training compute"); plt.xticks(rotation=25, ha="right")
 save("f2_roi")
 
 # 3. test-time scaling
